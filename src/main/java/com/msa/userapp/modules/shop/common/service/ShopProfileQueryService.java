@@ -34,12 +34,22 @@ public class ShopProfileQueryService {
     }
 
     public ShopTypeLandingResponse landing(String normalizedShopType, int page, int size) {
+        return landing(normalizedShopType, null, null, page, size);
+    }
+
+    public ShopTypeLandingResponse landing(
+            String normalizedShopType,
+            Double latitude,
+            Double longitude,
+            int page,
+            int size
+    ) {
         ShopTypeResponse shopType = requireShopType(normalizedShopType);
         return new ShopTypeLandingResponse(
                 shopType,
                 shopCatalogQueryService.findCategories(shopType.id(), null),
                 shopCatalogQueryService.findProducts(shopType.id(), null, null, null, null, page, size),
-                findShops(shopType.id(), null, null, page, size)
+                findShops(shopType.id(), null, null, latitude, longitude, page, size)
         );
     }
 
@@ -65,8 +75,19 @@ public class ShopProfileQueryService {
             int page,
             int size
     ) {
+        return shops(normalizedShopType, search, null, null, page, size);
+    }
+
+    public PageResponse<ShopSummaryResponse> shops(
+            String normalizedShopType,
+            String search,
+            Double latitude,
+            Double longitude,
+            int page,
+            int size
+    ) {
         ShopTypeResponse shopType = requireShopType(normalizedShopType);
-        return findShops(shopType.id(), null, search, page, size);
+        return findShops(shopType.id(), null, search, latitude, longitude, page, size);
     }
 
     public ShopProfileResponse shopProfile(
@@ -125,6 +146,8 @@ public class ShopProfileQueryService {
             Long shopTypeId,
             Long categoryId,
             String search,
+            Double userLatitude,
+            Double userLongitude,
             int page,
             int size
     ) {
@@ -137,6 +160,8 @@ public class ShopProfileQueryService {
         params.put("shopTypeId", shopTypeId);
         params.put("categoryId", categoryId);
         params.put("search", StringUtils.hasText(search) ? "%" + search.trim() + "%" : null);
+        params.put("userLatitude", userLatitude);
+        params.put("userLongitude", userLongitude);
         params.put("limit", limit);
         params.put("offset", offset);
 
@@ -151,6 +176,18 @@ public class ShopProfileQueryService {
                     address.city,
                     sl.latitude,
                     sl.longitude,
+                    CASE
+                        WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
+                            6371 * ACOS(
+                                LEAST(
+                                    1,
+                                    COS(RADIANS(:userLatitude)) * COS(RADIANS(sl.latitude))
+                                    * COS(RADIANS(sl.longitude) - RADIANS(:userLongitude))
+                                    + SIN(RADIANS(:userLatitude)) * SIN(RADIANS(sl.latitude))
+                                )
+                            )
+                        ELSE NULL
+                    END AS distance_km,
                     sdr.delivery_type,
                     sdr.radius_km,
                     sdr.min_order_amount,
@@ -202,6 +239,7 @@ public class ShopProfileQueryService {
                 ORDER BY
                   accepts_orders DESC,
                   closing_soon ASC,
+                  distance_km ASC,
                   s.avg_rating DESC,
                   s.total_reviews DESC,
                   s.updated_at DESC

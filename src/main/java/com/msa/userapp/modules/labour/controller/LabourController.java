@@ -32,10 +32,13 @@ public class LabourController {
     public ApiResponse<LabourApiDtos.LabourLandingResponse> landing(
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(labourQueryService.landing(userId, categoryId, page, size));
+        return ApiResponse.ok(labourQueryService.landing(userId, categoryId, city, latitude, longitude, page, size));
     }
 
     @GetMapping("/api/v1/public/labour/categories")

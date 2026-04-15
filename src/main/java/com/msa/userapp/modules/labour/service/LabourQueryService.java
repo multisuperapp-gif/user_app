@@ -23,10 +23,18 @@ public class LabourQueryService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public LabourApiDtos.LabourLandingResponse landing(Long userId, Long categoryId, int page, int size) {
+    public LabourApiDtos.LabourLandingResponse landing(
+            Long userId,
+            Long categoryId,
+            String city,
+            Double latitude,
+            Double longitude,
+            int page,
+            int size
+    ) {
         return new LabourApiDtos.LabourLandingResponse(
                 categories(),
-                profiles(userId, categoryId, null, page, size)
+                profiles(userId, categoryId, null, city, latitude, longitude, page, size)
         );
     }
 
@@ -50,11 +58,24 @@ public class LabourQueryService {
             int page,
             int size
     ) {
+        return profiles(userId, categoryId, search, null, null, null, page, size);
+    }
+
+    public PageResponse<LabourApiDtos.LabourProfileCardResponse> profiles(
+            Long userId,
+            Long categoryId,
+            String search,
+            String city,
+            Double latitude,
+            Double longitude,
+            int page,
+            int size
+    ) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
         int limit = safeSize + 1;
         int offset = safePage * safeSize;
-        UserLocation userLocation = resolveUserLocation(userId);
+        UserLocation userLocation = resolveUserLocation(userId, city, latitude, longitude);
 
         Map<String, Object> params = new HashMap<>();
         params.put("categoryId", categoryId);
@@ -172,7 +193,16 @@ public class LabourQueryService {
     }
 
     public LabourApiDtos.LabourProfileResponse profile(Long userId, Long labourId) {
-        PageResponse<LabourApiDtos.LabourProfileCardResponse> page = profiles(userId, null, null, 0, MAX_PAGE_SIZE);
+        PageResponse<LabourApiDtos.LabourProfileCardResponse> page = profiles(
+                userId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                MAX_PAGE_SIZE
+        );
         LabourApiDtos.LabourProfileCardResponse profile = page.items().stream()
                 .filter(item -> item.labourId().equals(labourId))
                 .findFirst()
@@ -216,7 +246,7 @@ public class LabourQueryService {
     }
 
     private LabourApiDtos.LabourProfileCardResponse requireProfile(Long userId, Long labourId) {
-        UserLocation userLocation = resolveUserLocation(userId);
+        UserLocation userLocation = resolveUserLocation(userId, null, null, null);
         Map<String, Object> params = new HashMap<>();
         params.put("labourId", labourId);
         params.put("userCity", userLocation.city());
@@ -303,7 +333,15 @@ public class LabourQueryService {
         return rows.getFirst();
     }
 
-    private UserLocation resolveUserLocation(Long userId) {
+    private UserLocation resolveUserLocation(Long userId, String overrideCity, Double overrideLatitude, Double overrideLongitude) {
+        if (overrideLatitude != null && overrideLongitude != null) {
+            return new UserLocation(
+                    null,
+                    StringUtils.hasText(overrideCity) ? overrideCity.trim() : null,
+                    BigDecimal.valueOf(overrideLatitude),
+                    BigDecimal.valueOf(overrideLongitude)
+            );
+        }
         if (userId == null || userId <= 0) {
             return new UserLocation(null, null, null, null);
         }

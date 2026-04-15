@@ -28,10 +28,12 @@ public class PharmacyCatalogController {
 
     @GetMapping("/landing")
     public ApiResponse<ShopTypeLandingResponse> landing(
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(shopProfileQueryService.landing(SHOP_TYPE, page, size));
+        return ApiResponse.ok(shopProfileQueryService.landing(SHOP_TYPE, latitude, longitude, page, size));
     }
 
     @GetMapping("/categories")

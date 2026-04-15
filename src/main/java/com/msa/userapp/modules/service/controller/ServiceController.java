@@ -32,10 +32,22 @@ public class ServiceController {
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Long subcategoryId,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) Double latitude,
+            @RequestParam(required = false) Double longitude,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(serviceDiscoveryQueryService.landing(userId, categoryId, subcategoryId, page, size));
+        return ApiResponse.ok(serviceDiscoveryQueryService.landing(
+                userId,
+                categoryId,
+                subcategoryId,
+                city,
+                latitude,
+                longitude,
+                page,
+                size
+        ));
     }
 
     @GetMapping("/api/v1/public/service/categories")

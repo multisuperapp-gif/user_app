@@ -28,12 +28,15 @@ public class ServiceDiscoveryQueryService {
             Long userId,
             Long categoryId,
             Long subcategoryId,
+            String city,
+            Double latitude,
+            Double longitude,
             int page,
             int size
     ) {
         return new ServiceApiDtos.ServiceLandingResponse(
                 categories(),
-                providers(userId, categoryId, subcategoryId, null, page, size)
+                providers(userId, categoryId, subcategoryId, null, city, latitude, longitude, page, size)
         );
     }
 
@@ -85,11 +88,25 @@ public class ServiceDiscoveryQueryService {
             int page,
             int size
     ) {
+        return providers(userId, categoryId, subcategoryId, search, null, null, null, page, size);
+    }
+
+    public PageResponse<ServiceApiDtos.ServiceProviderCardResponse> providers(
+            Long userId,
+            Long categoryId,
+            Long subcategoryId,
+            String search,
+            String city,
+            Double latitude,
+            Double longitude,
+            int page,
+            int size
+    ) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? DEFAULT_PAGE_SIZE : Math.min(size, MAX_PAGE_SIZE);
         int limit = safeSize + 1;
         int offset = safePage * safeSize;
-        UserLocation userLocation = resolveUserLocation(userId);
+        UserLocation userLocation = resolveUserLocation(userId, city, latitude, longitude);
 
         Map<String, Object> params = new HashMap<>();
         params.put("categoryId", categoryId);
@@ -265,6 +282,9 @@ public class ServiceDiscoveryQueryService {
                 categoryId,
                 subcategoryId,
                 null,
+                null,
+                null,
+                null,
                 0,
                 MAX_PAGE_SIZE
         );
@@ -280,7 +300,7 @@ public class ServiceDiscoveryQueryService {
             Long categoryId,
             Long subcategoryId
     ) {
-        UserLocation userLocation = resolveUserLocation(userId);
+        UserLocation userLocation = resolveUserLocation(userId, null, null, null);
         Map<String, Object> params = new HashMap<>();
         params.put("providerId", providerId);
         params.put("categoryId", categoryId);
@@ -360,7 +380,14 @@ public class ServiceDiscoveryQueryService {
         return rows.getFirst();
     }
 
-    private UserLocation resolveUserLocation(Long userId) {
+    private UserLocation resolveUserLocation(Long userId, String overrideCity, Double overrideLatitude, Double overrideLongitude) {
+        if (overrideLatitude != null && overrideLongitude != null) {
+            return new UserLocation(
+                    StringUtils.hasText(overrideCity) ? overrideCity.trim() : null,
+                    BigDecimal.valueOf(overrideLatitude),
+                    BigDecimal.valueOf(overrideLongitude)
+            );
+        }
         if (userId == null || userId <= 0) {
             return new UserLocation(null, null, null);
         }
