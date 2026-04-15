@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: user_app
+  datasource:
+    url: ${DB_URL:jdbc:mysql://multisuperapp1.cituis86a8r2.us-east-1.rds.amazonaws.com:3306/hyperlocal_platform}
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:multisuperapp1}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: UserAppHikariPool
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${DB_VALIDATION_TIMEOUT_MS:5000}
+      idle-timeout: ${DB_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DB_MAX_LIFETIME_MS:1500000}
+      keepalive-time: ${DB_KEEPALIVE_TIME_MS:300000}
+      initialization-fail-timeout: ${DB_INIT_FAIL_TIMEOUT_MS:10000}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:true}
+    url: ${FLYWAY_URL:${DB_URL:jdbc:mysql://multisuperapp1.cituis86a8r2.us-east-1.rds.amazonaws.com:3306/hyperlocal_platform}}
+    user: ${FLYWAY_USER:${DB_USERNAME:admin}}
+    password: ${FLYWAY_PASSWORD:${DB_PASSWORD:multisuperapp1}}
+
+server:
+  port: ${SERVER_PORT:8085}
+
+app:
+  security:
+    access-token-secret: ${ACCESS_TOKEN_SECRET:auth-verification-service-super-secret-key}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:60}
+    general-authenticated-max-requests: ${RATE_LIMIT_GENERAL_AUTHENTICATED_MAX_REQUESTS:180}
+    cart-mutation-max-requests: ${RATE_LIMIT_CART_MUTATION_MAX_REQUESTS:45}
+    checkout-preview-max-requests: ${RATE_LIMIT_CHECKOUT_PREVIEW_MAX_REQUESTS:20}
+    order-place-max-requests: ${RATE_LIMIT_ORDER_PLACE_MAX_REQUESTS:12}
+    order-cancel-max-requests: ${RATE_LIMIT_ORDER_CANCEL_MAX_REQUESTS:12}
+    push-token-max-requests: ${RATE_LIMIT_PUSH_TOKEN_MAX_REQUESTS:20}
+  persistence:
+    sql:
+      enabled: ${SQL_ENABLED:true}
+    mongo:
+      enabled: ${MONGO_ENABLED:false}
+      uri: ${MONGO_URI:}
+      database: ${MONGO_DATABASE:msa_user_app}
+  integrations:
+    auth-service-url: ${AUTH_SERVICE_URL:http://44.207.68.180:8081}
+    business-app-url: ${BUSINESS_APP_URL:http://44.207.68.180:8082}
+    booking-payment-url: ${BOOKING_PAYMENT_URL:http://44.217.176.56:8084}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
