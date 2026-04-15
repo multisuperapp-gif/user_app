@@ -41,7 +41,7 @@ public class LabourBookingService {
         String bookingPeriod = normalizeBookingPeriod(request.bookingPeriod());
         Long addressId = labourQueryService.resolveDefaultAddressId(userId, request.addressId());
 
-        LabourProviderRow provider = requireLabourProvider(request.labourId(), request.categoryId());
+        LabourProviderRow provider = requireLabourProvider(userId, request.labourId(), request.categoryId());
         BigDecimal amount = switch (bookingPeriod) {
             case "HALF_DAY" -> provider.halfDayRate();
             case "FULL_DAY" -> provider.fullDayRate();
@@ -175,7 +175,7 @@ public class LabourBookingService {
         );
     }
 
-    private LabourProviderRow requireLabourProvider(Long labourId, Long categoryId) {
+    private LabourProviderRow requireLabourProvider(Long userId, Long labourId, Long categoryId) {
         List<LabourProviderRow> rows = jdbcTemplate.query("""
                 SELECT
                     lp.id AS labour_id,
@@ -191,8 +191,18 @@ public class LabourBookingService {
                 LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
                 LEFT JOIN labour_categories lc ON lc.id = ls.category_id
                 LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'LABOUR'
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                    GROUP BY provider_entity_id
+                ) active_bookings ON active_bookings.provider_entity_id = lp.id
                 WHERE lp.id = :labourId
                   AND lp.approval_status = 'APPROVED'
+                  AND lp.online_status = 1
+                  AND COALESCE(active_bookings.active_booking_count, 0) = 0
+                  AND u.id <> :userId
                   AND (:categoryId IS NULL OR EXISTS (
                         SELECT 1
                         FROM labour_skills ls_filter
@@ -201,7 +211,7 @@ public class LabourBookingService {
                   ))
                 GROUP BY lp.id, up.full_name
                 LIMIT 1
-                """, Map.of("labourId", labourId, "categoryId", categoryId), (rs, rowNum) -> new LabourProviderRow(
+                """, Map.of("userId", userId, "labourId", labourId, "categoryId", categoryId), (rs, rowNum) -> new LabourProviderRow(
                 rs.getLong("labour_id"),
                 rs.getString("full_name"),
                 rs.getObject("category_id") == null ? null : rs.getLong("category_id"),
@@ -211,7 +221,7 @@ public class LabourBookingService {
                 rs.getBigDecimal("full_day_rate")
         ));
         if (rows.isEmpty()) {
-            throw new NotFoundException("Labour not found");
+            throw new NotFoundException("Labour is offline, booked, or not available");
         }
         return rows.getFirst();
     }
@@ -247,7 +257,16 @@ public class LabourBookingService {
                    AND lpr.category_id = ls.category_id
                    AND lpr.is_enabled = 1
                 INNER JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'LABOUR'
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                    GROUP BY provider_entity_id
+                ) active_bookings ON active_bookings.provider_entity_id = lp.id
                 WHERE lp.approval_status = 'APPROVED'
+                  AND lp.online_status = 1
+                  AND COALESCE(active_bookings.active_booking_count, 0) = 0
                   AND ls.category_id = :categoryId
                   AND lsa.city = :city
                 GROUP BY lp.id

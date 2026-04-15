@@ -76,8 +76,11 @@ public class LabourQueryService {
         int limit = safeSize + 1;
         int offset = safePage * safeSize;
         UserLocation userLocation = resolveUserLocation(userId, city, latitude, longitude);
+        String currentUserPhone = resolveUserPhone(userId);
 
         Map<String, Object> params = new HashMap<>();
+        params.put("currentUserId", userId);
+        params.put("currentUserPhone", currentUserPhone);
         params.put("categoryId", categoryId);
         params.put("search", StringUtils.hasText(search) ? "%" + search.trim() + "%" : null);
         params.put("userCity", userLocation.city());
@@ -87,85 +90,110 @@ public class LabourQueryService {
         params.put("offset", offset);
 
         String sql = """
-                SELECT
-                    lp.id AS labour_id,
-                    COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.id END), MIN(lc.id)) AS category_id,
-                    COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.name END), MIN(lc.name), 'All labour') AS category_name,
-                    COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
-                    COALESCE(photo.object_key, '') AS photo_object_key,
-                    u.phone,
-                    lp.experience_years,
-                    lp.avg_rating,
-                    lp.total_jobs_completed,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
-                    MIN(
-                        CASE
-                            WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
-                                6371 * ACOS(
-                                    LEAST(
-                                        1,
-                                        COS(RADIANS(:userLatitude)) * COS(RADIANS(lsa.center_latitude))
-                                        * COS(RADIANS(lsa.center_longitude) - RADIANS(:userLongitude))
-                                        + SIN(RADIANS(:userLatitude)) * SIN(RADIANS(lsa.center_latitude))
+                WITH labour_rows AS (
+                    SELECT
+                        lp.id AS labour_id,
+                        COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.id END), MIN(lc.id)) AS category_id,
+                        COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.name END), MIN(lc.name), 'All labour') AS category_name,
+                        COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
+                        COALESCE(photo.object_key, '') AS photo_object_key,
+                        u.phone,
+                        lp.experience_years,
+                        lp.avg_rating,
+                        lp.total_jobs_completed,
+                        lp.online_status,
+                        COALESCE(active_bookings.active_booking_count, 0) AS active_booking_count,
+                        COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
+                        COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
+                        COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                        MIN(
+                            CASE
+                                WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
+                                    6371 * ACOS(
+                                        LEAST(
+                                            1,
+                                            COS(RADIANS(:userLatitude)) * COS(RADIANS(lsa.center_latitude))
+                                            * COS(RADIANS(lsa.center_longitude) - RADIANS(:userLongitude))
+                                            + SIN(RADIANS(:userLatitude)) * SIN(RADIANS(lsa.center_latitude))
+                                        )
                                     )
-                                )
-                            ELSE NULL
-                        END
-                    ) AS distance_km,
-                    CASE
-                        WHEN EXISTS (
+                                ELSE NULL
+                            END
+                        ) AS distance_km,
+                        CASE
+                            WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 'BOOKED'
+                            WHEN lp.online_status = 1 THEN 'ONLINE'
+                            ELSE 'OFFLINE'
+                        END AS availability_status,
+                        CASE
+                            WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 1
+                            ELSE 0
+                        END AS available_now,
+                        CASE
+                            WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 0
+                            WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 1
+                            ELSE 2
+                        END AS availability_rank,
+                        GROUP_CONCAT(DISTINCT ls.skill_name ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
+                    FROM labour_profiles lp
+                    INNER JOIN users u ON u.id = lp.user_id
+                    LEFT JOIN user_profiles up ON up.user_id = u.id
+                    LEFT JOIN files photo ON photo.id = up.photo_file_id
+                    LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
+                    LEFT JOIN labour_categories lc ON lc.id = ls.category_id
+                    LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
+                    LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
+                    LEFT JOIN (
+                        SELECT provider_entity_id, COUNT(1) AS active_booking_count
+                        FROM bookings
+                        WHERE provider_entity_type = 'LABOUR'
+                          AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                        GROUP BY provider_entity_id
+                    ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                    WHERE lp.approval_status = 'APPROVED'
+                      AND (:currentUserId IS NULL OR u.id <> :currentUserId)
+                      AND (:currentUserPhone IS NULL OR u.phone <> :currentUserPhone)
+                      AND (:categoryId IS NULL OR EXISTS (
                             SELECT 1
-                            FROM labour_availability la
-                            WHERE la.labour_id = lp.id
-                              AND la.available_date = CURRENT_DATE()
-                              AND la.availability_status = 'AVAILABLE'
-                        ) THEN 1
-                        ELSE 0
-                    END AS available_today,
-                    GROUP_CONCAT(DISTINCT ls.skill_name ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
-                FROM labour_profiles lp
-                INNER JOIN users u ON u.id = lp.user_id
-                LEFT JOIN user_profiles up ON up.user_id = u.id
-                LEFT JOIN files photo ON photo.id = up.photo_file_id
-                LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
-                LEFT JOIN labour_categories lc ON lc.id = ls.category_id
-                LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
-                LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
-                WHERE lp.approval_status = 'APPROVED'
-                  AND (:categoryId IS NULL OR EXISTS (
-                        SELECT 1
-                        FROM labour_skills skill_filter
-                        WHERE skill_filter.labour_id = lp.id
-                          AND skill_filter.category_id = :categoryId
-                  ))
-                  AND (:userCity IS NULL OR EXISTS (
-                        SELECT 1
-                        FROM labour_service_areas city_filter
-                        WHERE city_filter.labour_id = lp.id
-                          AND city_filter.city = :userCity
-                  ))
-                  AND (
-                        :search IS NULL
-                        OR up.full_name LIKE :search
-                        OR ls.skill_name LIKE :search
-                        OR lc.name LIKE :search
-                  )
-                GROUP BY
-                    lp.id,
-                    up.full_name,
-                    photo.object_key,
-                    u.phone,
-                    lp.experience_years,
-                    lp.avg_rating,
-                    lp.total_jobs_completed
+                            FROM labour_skills skill_filter
+                            WHERE skill_filter.labour_id = lp.id
+                              AND skill_filter.category_id = :categoryId
+                      ))
+                      AND (:userCity IS NULL OR EXISTS (
+                            SELECT 1
+                            FROM labour_service_areas city_filter
+                            WHERE city_filter.labour_id = lp.id
+                              AND city_filter.city = :userCity
+                      ))
+                      AND (
+                            :search IS NULL
+                            OR up.full_name LIKE :search
+                            OR ls.skill_name LIKE :search
+                            OR lc.name LIKE :search
+                      )
+                    GROUP BY
+                        lp.id,
+                        up.full_name,
+                        photo.object_key,
+                        u.phone,
+                        lp.experience_years,
+                        lp.avg_rating,
+                        lp.total_jobs_completed,
+                        lp.online_status,
+                        active_bookings.active_booking_count
+                ),
+                preferred_rank AS (
+                    SELECT MIN(availability_rank) AS selected_rank
+                    FROM labour_rows
+                )
+                SELECT *
+                FROM labour_rows
+                WHERE availability_rank = (SELECT selected_rank FROM preferred_rank)
                 ORDER BY
-                    available_today DESC,
-                    lp.avg_rating DESC,
-                    lp.total_jobs_completed DESC,
                     distance_km ASC,
-                    lp.id DESC
+                    avg_rating DESC,
+                    total_jobs_completed DESC,
+                    labour_id DESC
                 LIMIT :limit OFFSET :offset
                 """;
 
@@ -184,7 +212,10 @@ public class LabourQueryService {
                         rs.getBigDecimal("avg_rating"),
                         rs.getLong("total_jobs_completed"),
                         rs.getBigDecimal("distance_km"),
-                        rs.getBoolean("available_today"),
+                        rs.getBoolean("online_status"),
+                        rs.getBoolean("available_now"),
+                        rs.getString("availability_status"),
+                        rs.getInt("active_booking_count"),
                         rs.getString("skills_summary")
                 ));
         boolean hasMore = rows.size() > safeSize;
@@ -247,8 +278,11 @@ public class LabourQueryService {
 
     private LabourApiDtos.LabourProfileCardResponse requireProfile(Long userId, Long labourId) {
         UserLocation userLocation = resolveUserLocation(userId, null, null, null);
+        String currentUserPhone = resolveUserPhone(userId);
         Map<String, Object> params = new HashMap<>();
         params.put("labourId", labourId);
+        params.put("currentUserId", userId);
+        params.put("currentUserPhone", currentUserPhone);
         params.put("userCity", userLocation.city());
         params.put("userLatitude", userLocation.latitude());
         params.put("userLongitude", userLocation.longitude());
@@ -263,6 +297,8 @@ public class LabourQueryService {
                     lp.experience_years,
                     lp.avg_rating,
                     lp.total_jobs_completed,
+                    lp.online_status,
+                    COALESCE(active_bookings.active_booking_count, 0) AS active_booking_count,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
@@ -281,15 +317,14 @@ public class LabourQueryService {
                         END
                     ) AS distance_km,
                     CASE
-                        WHEN EXISTS (
-                            SELECT 1
-                            FROM labour_availability la
-                            WHERE la.labour_id = lp.id
-                              AND la.available_date = CURRENT_DATE()
-                              AND la.availability_status = 'AVAILABLE'
-                        ) THEN 1
+                        WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 'BOOKED'
+                        WHEN lp.online_status = 1 THEN 'ONLINE'
+                        ELSE 'OFFLINE'
+                    END AS availability_status,
+                    CASE
+                        WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 1
                         ELSE 0
-                    END AS available_today,
+                    END AS available_now,
                     GROUP_CONCAT(DISTINCT ls.skill_name ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
                 FROM labour_profiles lp
                 INNER JOIN users u ON u.id = lp.user_id
@@ -299,8 +334,17 @@ public class LabourQueryService {
                 LEFT JOIN labour_categories lc ON lc.id = ls.category_id
                 LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
                 LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'LABOUR'
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                    GROUP BY provider_entity_id
+                ) active_bookings ON active_bookings.provider_entity_id = lp.id
                 WHERE lp.id = :labourId
                   AND lp.approval_status = 'APPROVED'
+                  AND (:currentUserId IS NULL OR u.id <> :currentUserId)
+                  AND (:currentUserPhone IS NULL OR u.phone <> :currentUserPhone)
                 GROUP BY
                     lp.id,
                     up.full_name,
@@ -308,7 +352,9 @@ public class LabourQueryService {
                     u.phone,
                     lp.experience_years,
                     lp.avg_rating,
-                    lp.total_jobs_completed
+                    lp.total_jobs_completed,
+                    lp.online_status,
+                    active_bookings.active_booking_count
                 LIMIT 1
                 """, params, (rs, rowNum) -> new LabourApiDtos.LabourProfileCardResponse(
                 rs.getLong("labour_id"),
@@ -324,7 +370,10 @@ public class LabourQueryService {
                 rs.getBigDecimal("avg_rating"),
                 rs.getLong("total_jobs_completed"),
                 rs.getBigDecimal("distance_km"),
-                rs.getBoolean("available_today"),
+                rs.getBoolean("online_status"),
+                rs.getBoolean("available_now"),
+                rs.getString("availability_status"),
+                rs.getInt("active_booking_count"),
                 rs.getString("skills_summary")
         ));
         if (rows.isEmpty()) {
@@ -358,6 +407,23 @@ public class LabourQueryService {
                 rs.getBigDecimal("longitude")
         ));
         return rows.isEmpty() ? new UserLocation(null, null, null, null) : rows.getFirst();
+    }
+
+    private String resolveUserPhone(Long userId) {
+        if (userId == null || userId <= 0) {
+            return null;
+        }
+        List<String> rows = jdbcTemplate.query("""
+                SELECT phone
+                FROM users
+                WHERE id = :userId
+                LIMIT 1
+                """, Map.of("userId", userId), (rs, rowNum) -> rs.getString("phone"));
+        if (rows.isEmpty()) {
+            return null;
+        }
+        String phone = rows.getFirst();
+        return StringUtils.hasText(phone) ? phone.trim() : null;
     }
 
     private static String maskPhone(String phone) {

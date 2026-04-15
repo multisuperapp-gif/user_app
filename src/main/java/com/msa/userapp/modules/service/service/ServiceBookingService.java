@@ -38,6 +38,7 @@ public class ServiceBookingService {
         }
         Long addressId = serviceDiscoveryQueryService.resolveDefaultAddressId(userId, request.addressId());
         ServiceTargetRow target = requireBookingTarget(
+                userId,
                 request.providerId(),
                 request.categoryId(),
                 request.subcategoryId()
@@ -79,7 +80,7 @@ public class ServiceBookingService {
         );
     }
 
-    private ServiceTargetRow requireBookingTarget(Long providerId, Long categoryId, Long subcategoryId) {
+    private ServiceTargetRow requireBookingTarget(Long userId, Long providerId, Long categoryId, Long subcategoryId) {
         List<ServiceTargetRow> rows = jdbcTemplate.query("""
                 SELECT
                     sp.id AS provider_id,
@@ -95,8 +96,18 @@ public class ServiceBookingService {
                    AND ps.is_active = 1
                 INNER JOIN provider_subcategories psc ON psc.id = ps.subcategory_id
                 LEFT JOIN provider_pricing_rules ppr ON ppr.provider_service_id = ps.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'SERVICE_PROVIDER'
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                    GROUP BY provider_entity_id
+                ) active_bookings ON active_bookings.provider_entity_id = sp.id
                 WHERE sp.id = :providerId
                   AND sp.approval_status = 'APPROVED'
+                  AND sp.online_status = 1
+                  AND GREATEST(COALESCE(sp.available_service_men, 0) - COALESCE(active_bookings.active_booking_count, 0), 0) > 0
+                  AND u.id <> :userId
                   AND (:categoryId IS NULL OR psc.category_id = :categoryId)
                   AND (:subcategoryId IS NULL OR psc.id = :subcategoryId)
                 ORDER BY
@@ -105,6 +116,7 @@ public class ServiceBookingService {
                     ps.id ASC
                 LIMIT 1
                 """, new MapSqlParameterSource()
+                .addValue("userId", userId)
                 .addValue("providerId", providerId)
                 .addValue("categoryId", categoryId)
                 .addValue("subcategoryId", subcategoryId), (rs, rowNum) -> new ServiceTargetRow(
@@ -115,7 +127,7 @@ public class ServiceBookingService {
                 rs.getBigDecimal("visiting_charge")
         ));
         if (rows.isEmpty()) {
-            throw new NotFoundException("Service provider not found");
+            throw new NotFoundException("Service provider is offline, booked, or not available");
         }
         return rows.getFirst();
     }

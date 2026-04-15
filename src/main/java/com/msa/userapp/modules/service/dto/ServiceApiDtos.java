@@ -42,7 +42,12 @@ public final class ServiceApiDtos {
             BigDecimal rating,
             long completedJobs,
             int availableServiceMen,
-            BigDecimal distanceKm
+            BigDecimal distanceKm,
+            boolean onlineStatus,
+            boolean availableNow,
+            String availabilityStatus,
+            int activeBookingCount,
+            int remainingServiceMen
     ) {
     }
 

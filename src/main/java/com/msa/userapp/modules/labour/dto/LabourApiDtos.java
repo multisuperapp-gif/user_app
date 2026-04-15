@@ -35,7 +35,10 @@ public final class LabourApiDtos {
             BigDecimal rating,
             long completedJobs,
             BigDecimal distanceKm,
-            boolean availableToday,
+            boolean onlineStatus,
+            boolean availableNow,
+            String availabilityStatus,
+            int activeBookingCount,
             String skillsSummary
     ) {
     }
