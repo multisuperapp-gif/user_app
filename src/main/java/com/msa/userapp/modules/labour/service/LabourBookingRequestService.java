@@ -277,7 +277,7 @@ public class LabourBookingRequestService {
         } catch (FeignException.BadRequest exception) {
             throw new BadRequestException(extractMessage(exception));
         } catch (FeignException exception) {
-            throw new BadRequestException("Booking service is unavailable right now");
+            throw new BadRequestException("Booking backend is unavailable right now. Please try again shortly.");
         }
     }
 
