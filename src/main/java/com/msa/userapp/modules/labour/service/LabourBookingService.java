@@ -205,7 +205,7 @@ public class LabourBookingService {
                     SELECT provider_entity_id, COUNT(1) AS active_booking_count
                     FROM bookings
                     WHERE provider_entity_type = 'LABOUR'
-                      AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                     GROUP BY provider_entity_id
                 ) active_bookings ON active_bookings.provider_entity_id = lp.id
                 WHERE lp.id = :labourId
@@ -280,7 +280,7 @@ public class LabourBookingService {
                     SELECT provider_entity_id, COUNT(1) AS active_booking_count
                     FROM bookings
                     WHERE provider_entity_type = 'LABOUR'
-                      AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                     GROUP BY provider_entity_id
                 ) active_bookings ON active_bookings.provider_entity_id = lp.id
                 WHERE lp.approval_status = 'APPROVED'
