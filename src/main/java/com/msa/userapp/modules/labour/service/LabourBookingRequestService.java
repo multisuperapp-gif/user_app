@@ -8,6 +8,7 @@ import com.msa.userapp.integration.bookingpayment.dto.BookingPaymentRequestDtos;
 import com.msa.userapp.modules.labour.dto.LabourApiDtos;
 import feign.FeignException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +87,62 @@ public class LabourBookingRequestService {
                 amount,
                 "INR",
                 provider.fullName()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public LabourApiDtos.GroupLabourBookingResponse createGroupBookingRequest(
+            String authorizationHeader,
+            Long userId,
+            LabourApiDtos.GroupLabourBookingRequest request
+    ) {
+        if (request.categoryId() == null) {
+            throw new BadRequestException("Please select a labour type first");
+        }
+        if (request.labourCount() == null || request.labourCount() <= 0) {
+            throw new BadRequestException("Please enter number of labour required");
+        }
+        if (request.maxPrice() == null || request.maxPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Please enter a valid max price");
+        }
+        String bookingPeriod = normalizeBookingPeriod(request.bookingPeriod());
+        Long addressId = labourQueryService.resolveDefaultAddressId(userId, request.addressId());
+        AddressRow address = requireAddress(addressId, userId);
+
+        BookingPaymentRequestDtos.BookingRequestData data = requireData(call(
+                () -> bookingPaymentRequestClient.create(
+                        authorizationHeader,
+                        userId,
+                        new BookingPaymentRequestDtos.CreateBookingRequest(
+                                "LABOUR",
+                                "BROADCAST",
+                                userId,
+                                addressId,
+                                LocalDateTime.now().plusMinutes(30),
+                                null,
+                                null,
+                                request.categoryId(),
+                                null,
+                                bookingPeriod,
+                                BigDecimal.ZERO,
+                                request.maxPrice(),
+                                address.latitude(),
+                                address.longitude()
+                        )
+                )
+        ));
+        int availableCandidates = data.candidates() == null ? 0 : data.candidates().size();
+        BigDecimal platformAmount = request.maxPrice()
+                .multiply(BigDecimal.valueOf(request.labourCount()))
+                .setScale(2, RoundingMode.HALF_UP);
+        return new LabourApiDtos.GroupLabourBookingResponse(
+                data.id(),
+                data.requestCode(),
+                availableCandidates,
+                request.labourCount(),
+                platformAmount,
+                "INR",
+                data.requestStatus()
         );
     }
 

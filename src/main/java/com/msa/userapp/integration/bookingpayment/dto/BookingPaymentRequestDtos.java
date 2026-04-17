@@ -2,6 +2,7 @@ package com.msa.userapp.integration.bookingpayment.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public final class BookingPaymentRequestDtos {
     private BookingPaymentRequestDtos() {
@@ -28,7 +29,19 @@ public final class BookingPaymentRequestDtos {
     public record BookingRequestData(
             Long id,
             String requestCode,
-            String requestStatus
+            String requestStatus,
+            List<BookingRequestCandidateData> candidates
+    ) {
+    }
+
+    public record BookingRequestCandidateData(
+            Long candidateId,
+            String providerEntityType,
+            Long providerEntityId,
+            String candidateStatus,
+            BigDecimal quotedPriceAmount,
+            BigDecimal distanceKm,
+            LocalDateTime expiresAt
     ) {
     }
 

@@ -98,9 +98,10 @@ public class LabourController {
 
     @PostMapping("/api/v1/labour/bookings/group-request")
     public ApiResponse<LabourApiDtos.GroupLabourBookingResponse> groupBooking(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @RequestBody LabourApiDtos.GroupLabourBookingRequest request
     ) {
-        return ApiResponse.ok(labourBookingService.createGroupRequest(userId, request));
+        return ApiResponse.ok(labourBookingRequestService.createGroupBookingRequest(authorizationHeader, userId, request));
     }
 }
