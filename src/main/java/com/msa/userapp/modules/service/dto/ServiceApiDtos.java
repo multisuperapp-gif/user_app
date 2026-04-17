@@ -66,16 +66,38 @@ public final class ServiceApiDtos {
     }
 
     public record DirectServiceBookingResponse(
+            Long requestId,
+            String requestCode,
+            String requestStatus,
+            BigDecimal quotedPriceAmount,
+            String currencyCode,
+            String providerName,
+            String serviceName
+    ) {
+    }
+
+    public record ServiceBookingRequestStatusResponse(
+            Long requestId,
+            String requestCode,
+            String requestStatus,
+            String providerName,
+            String providerPhone,
+            BigDecimal quotedPriceAmount,
+            BigDecimal distanceKm,
             Long bookingId,
             String bookingCode,
             String bookingStatus,
             String paymentStatus,
-            Long paymentId,
+            boolean canMakePayment
+    ) {
+    }
+
+    public record ServiceBookingPaymentResponse(
+            Long bookingId,
+            String bookingCode,
             String paymentCode,
-            BigDecimal payableAmount,
-            String currencyCode,
-            String providerName,
-            String serviceName
+            BigDecimal amount,
+            String currencyCode
     ) {
     }
 }

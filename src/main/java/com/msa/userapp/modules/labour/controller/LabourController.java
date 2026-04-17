@@ -2,6 +2,7 @@ package com.msa.userapp.modules.labour.controller;
 
 import com.msa.userapp.common.api.ApiResponse;
 import com.msa.userapp.modules.labour.dto.LabourApiDtos;
+import com.msa.userapp.modules.labour.service.LabourBookingRequestService;
 import com.msa.userapp.modules.labour.service.LabourBookingService;
 import com.msa.userapp.modules.labour.service.LabourQueryService;
 import com.msa.userapp.modules.shop.common.dto.PageResponse;
@@ -19,13 +20,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class LabourController {
     private final LabourQueryService labourQueryService;
     private final LabourBookingService labourBookingService;
+    private final LabourBookingRequestService labourBookingRequestService;
 
     public LabourController(
             LabourQueryService labourQueryService,
-            LabourBookingService labourBookingService
+            LabourBookingService labourBookingService,
+            LabourBookingRequestService labourBookingRequestService
     ) {
         this.labourQueryService = labourQueryService;
         this.labourBookingService = labourBookingService;
+        this.labourBookingRequestService = labourBookingRequestService;
     }
 
     @GetMapping("/api/v1/public/labour/landing")
@@ -67,10 +71,29 @@ public class LabourController {
 
     @PostMapping("/api/v1/labour/bookings/direct")
     public ApiResponse<LabourApiDtos.DirectLabourBookingResponse> directBooking(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @RequestBody LabourApiDtos.DirectLabourBookingRequest request
     ) {
-        return ApiResponse.ok(labourBookingService.createDirectBooking(userId, request));
+        return ApiResponse.ok(labourBookingRequestService.createDirectBookingRequest(authorizationHeader, userId, request));
+    }
+
+    @GetMapping("/api/v1/labour/booking-requests/{requestId}")
+    public ApiResponse<LabourApiDtos.LabourBookingRequestStatusResponse> requestStatus(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId
+    ) {
+        return ApiResponse.ok(labourBookingRequestService.fetchRequestStatus(authorizationHeader, userId, requestId));
+    }
+
+    @PostMapping("/api/v1/labour/booking-requests/{requestId}/payment/initiate")
+    public ApiResponse<LabourApiDtos.LabourBookingPaymentResponse> initiateRequestPayment(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId
+    ) {
+        return ApiResponse.ok(labourBookingRequestService.initiatePayment(authorizationHeader, userId, requestId));
     }
 
     @PostMapping("/api/v1/labour/bookings/group-request")

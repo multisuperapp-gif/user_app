@@ -40,8 +40,9 @@ public class LabourBookingService {
         }
         String bookingPeriod = normalizeBookingPeriod(request.bookingPeriod());
         Long addressId = labourQueryService.resolveDefaultAddressId(userId, request.addressId());
+        AddressRow address = requireAddress(addressId, userId);
 
-        LabourProviderRow provider = requireLabourProvider(userId, request.labourId(), request.categoryId());
+        LabourProviderRow provider = requireLabourProvider(userId, request.labourId(), request.categoryId(), address);
         BigDecimal amount = switch (bookingPeriod) {
             case "HALF_DAY" -> provider.halfDayRate();
             case "FULL_DAY" -> provider.fullDayRate();
@@ -81,9 +82,6 @@ public class LabourBookingService {
                 bookingId,
                 bookingCode,
                 "PAYMENT_PENDING",
-                "PENDING",
-                paymentId,
-                paymentCode,
                 amount,
                 "INR",
                 provider.fullName()
@@ -175,7 +173,7 @@ public class LabourBookingService {
         );
     }
 
-    private LabourProviderRow requireLabourProvider(Long userId, Long labourId, Long categoryId) {
+    private LabourProviderRow requireLabourProvider(Long userId, Long labourId, Long categoryId, AddressRow address) {
         List<LabourProviderRow> rows = jdbcTemplate.query("""
                 SELECT
                     lp.id AS labour_id,
@@ -184,13 +182,25 @@ public class LabourBookingService {
                     COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.name END), MIN(lc.name), 'General labour') AS category_name,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate
+                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                    MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
+                    MIN(
+                        6371 * ACOS(
+                            LEAST(
+                                1,
+                                COS(RADIANS(:latitude)) * COS(RADIANS(lsa.center_latitude))
+                                * COS(RADIANS(lsa.center_longitude) - RADIANS(:longitude))
+                                + SIN(RADIANS(:latitude)) * SIN(RADIANS(lsa.center_latitude))
+                            )
+                        )
+                    ) AS distance_km
                 FROM labour_profiles lp
                 INNER JOIN users u ON u.id = lp.user_id
                 LEFT JOIN user_profiles up ON up.user_id = u.id
                 LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
                 LEFT JOIN labour_categories lc ON lc.id = ls.category_id
                 LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
+                LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
                 LEFT JOIN (
                     SELECT provider_entity_id, COUNT(1) AS active_booking_count
                     FROM bookings
@@ -210,8 +220,16 @@ public class LabourBookingService {
                           AND ls_filter.category_id = :categoryId
                   ))
                 GROUP BY lp.id, up.full_name
+                HAVING distance_km IS NULL
+                    OR radius_km <= 0
+                    OR distance_km <= radius_km
                 LIMIT 1
-                """, Map.of("userId", userId, "labourId", labourId, "categoryId", categoryId), (rs, rowNum) -> new LabourProviderRow(
+                """, new MapSqlParameterSource()
+                .addValue("userId", userId)
+                .addValue("labourId", labourId)
+                .addValue("categoryId", categoryId)
+                .addValue("latitude", address.latitude())
+                .addValue("longitude", address.longitude()), (rs, rowNum) -> new LabourProviderRow(
                 rs.getLong("labour_id"),
                 rs.getString("full_name"),
                 rs.getObject("category_id") == null ? null : rs.getLong("category_id"),
@@ -240,6 +258,7 @@ public class LabourBookingService {
                         WHEN :bookingPeriod = 'FULL_DAY' THEN COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' THEN lpr.full_day_price END), 0.00)
                         ELSE COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' THEN lpr.hourly_price END), 0.00)
                     END AS price_amount,
+                    MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
                     MIN(
                         6371 * ACOS(
                             LEAST(
@@ -272,6 +291,11 @@ public class LabourBookingService {
                 GROUP BY lp.id
                 HAVING price_amount > 0
                    AND price_amount <= :maxPrice
+                   AND (
+                        distance_km IS NULL
+                        OR radius_km <= 0
+                        OR distance_km <= radius_km
+                   )
                 ORDER BY distance_km ASC, price_amount ASC, lp.id ASC
                 LIMIT 50
                 """, new MapSqlParameterSource()

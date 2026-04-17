@@ -58,15 +58,37 @@ public final class LabourApiDtos {
     }
 
     public record DirectLabourBookingResponse(
+            Long requestId,
+            String requestCode,
+            String requestStatus,
+            BigDecimal quotedPriceAmount,
+            String currencyCode,
+            String labourName
+    ) {
+    }
+
+    public record LabourBookingRequestStatusResponse(
+            Long requestId,
+            String requestCode,
+            String requestStatus,
+            String providerName,
+            String providerPhone,
+            BigDecimal quotedPriceAmount,
+            BigDecimal distanceKm,
             Long bookingId,
             String bookingCode,
             String bookingStatus,
             String paymentStatus,
-            Long paymentId,
+            boolean canMakePayment
+    ) {
+    }
+
+    public record LabourBookingPaymentResponse(
+            Long bookingId,
+            String bookingCode,
             String paymentCode,
-            BigDecimal payableAmount,
-            String currencyCode,
-            String labourName
+            BigDecimal amount,
+            String currencyCode
     ) {
     }
 

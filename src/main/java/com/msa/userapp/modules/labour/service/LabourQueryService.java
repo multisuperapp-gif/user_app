@@ -94,7 +94,10 @@ public class LabourQueryService {
                     SELECT
                         lp.id AS labour_id,
                         COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.id END), MIN(lc.id)) AS category_id,
-                        COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.name END), MIN(lc.name), 'All labour') AS category_name,
+                        COALESCE(
+                            GROUP_CONCAT(DISTINCT lc.name ORDER BY lc.name SEPARATOR ', '),
+                            'All labour'
+                        ) AS category_name,
                         COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
                         COALESCE(photo.object_key, '') AS photo_object_key,
                         u.phone,
@@ -106,6 +109,7 @@ public class LabourQueryService {
                         COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
                         COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
                         COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                        MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
                         MIN(
                             CASE
                                 WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
@@ -181,6 +185,13 @@ public class LabourQueryService {
                         lp.total_jobs_completed,
                         lp.online_status,
                         active_bookings.active_booking_count
+                    HAVING (
+                        :userLatitude IS NULL
+                        OR :userLongitude IS NULL
+                        OR distance_km IS NULL
+                        OR radius_km <= 0
+                        OR distance_km <= radius_km
+                    )
                 ),
                 preferred_rank AS (
                     SELECT MIN(availability_rank) AS selected_rank
@@ -290,7 +301,10 @@ public class LabourQueryService {
                 SELECT
                     lp.id AS labour_id,
                     MIN(lc.id) AS category_id,
-                    COALESCE(MIN(lc.name), 'All labour') AS category_name,
+                    COALESCE(
+                        GROUP_CONCAT(DISTINCT lc.name ORDER BY lc.name SEPARATOR ', '),
+                        'All labour'
+                    ) AS category_name,
                     COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
                     COALESCE(photo.object_key, '') AS photo_object_key,
                     u.phone,
@@ -302,6 +316,7 @@ public class LabourQueryService {
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
                     COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                    MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
                     MIN(
                         CASE
                             WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
@@ -355,6 +370,13 @@ public class LabourQueryService {
                     lp.total_jobs_completed,
                     lp.online_status,
                     active_bookings.active_booking_count
+                HAVING (
+                    :userLatitude IS NULL
+                    OR :userLongitude IS NULL
+                    OR distance_km IS NULL
+                    OR radius_km <= 0
+                    OR distance_km <= radius_km
+                )
                 LIMIT 1
                 """, params, (rs, rowNum) -> new LabourApiDtos.LabourProfileCardResponse(
                 rs.getLong("labour_id"),

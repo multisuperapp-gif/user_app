@@ -2,6 +2,7 @@ package com.msa.userapp.modules.service.controller;
 
 import com.msa.userapp.common.api.ApiResponse;
 import com.msa.userapp.modules.service.dto.ServiceApiDtos;
+import com.msa.userapp.modules.service.service.ServiceBookingRequestService;
 import com.msa.userapp.modules.service.service.ServiceBookingService;
 import com.msa.userapp.modules.service.service.ServiceDiscoveryQueryService;
 import com.msa.userapp.modules.shop.common.dto.PageResponse;
@@ -18,13 +19,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class ServiceController {
     private final ServiceDiscoveryQueryService serviceDiscoveryQueryService;
     private final ServiceBookingService serviceBookingService;
+    private final ServiceBookingRequestService serviceBookingRequestService;
 
     public ServiceController(
             ServiceDiscoveryQueryService serviceDiscoveryQueryService,
-            ServiceBookingService serviceBookingService
+            ServiceBookingService serviceBookingService,
+            ServiceBookingRequestService serviceBookingRequestService
     ) {
         this.serviceDiscoveryQueryService = serviceDiscoveryQueryService;
         this.serviceBookingService = serviceBookingService;
+        this.serviceBookingRequestService = serviceBookingRequestService;
     }
 
     @GetMapping("/api/v1/public/service/landing")
@@ -79,9 +83,28 @@ public class ServiceController {
 
     @PostMapping("/api/v1/service/bookings/direct")
     public ApiResponse<ServiceApiDtos.DirectServiceBookingResponse> directBooking(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @RequestBody ServiceApiDtos.DirectServiceBookingRequest request
     ) {
-        return ApiResponse.ok(serviceBookingService.createDirectBooking(userId, request));
+        return ApiResponse.ok(serviceBookingRequestService.createDirectBookingRequest(authorizationHeader, userId, request));
+    }
+
+    @GetMapping("/api/v1/service/booking-requests/{requestId}")
+    public ApiResponse<ServiceApiDtos.ServiceBookingRequestStatusResponse> requestStatus(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId
+    ) {
+        return ApiResponse.ok(serviceBookingRequestService.fetchRequestStatus(authorizationHeader, userId, requestId));
+    }
+
+    @PostMapping("/api/v1/service/booking-requests/{requestId}/payment/initiate")
+    public ApiResponse<ServiceApiDtos.ServiceBookingPaymentResponse> initiateRequestPayment(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId
+    ) {
+        return ApiResponse.ok(serviceBookingRequestService.initiatePayment(authorizationHeader, userId, requestId));
     }
 }
