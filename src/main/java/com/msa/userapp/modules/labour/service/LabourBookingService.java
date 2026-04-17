@@ -199,7 +199,9 @@ public class LabourBookingService {
                 LEFT JOIN user_profiles up ON up.user_id = u.id
                 LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
                 LEFT JOIN labour_categories lc ON lc.id = ls.category_id
-                LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
+                LEFT JOIN labour_pricing lpr
+                    ON lpr.labour_id = lp.id
+                   AND (:categoryId IS NULL OR lpr.category_id = :categoryId)
                 LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
                 LEFT JOIN (
                     SELECT provider_entity_id, COUNT(1) AS active_booking_count
