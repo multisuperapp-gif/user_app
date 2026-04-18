@@ -6,6 +6,7 @@ import com.msa.userapp.modules.profile.dto.NotificationResponse;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationService {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
+    private static final Set<String> ALLOWED_USER_BOOKING_TYPES = Set.of(
+            "BOOKING_ACCEPTED",
+            "BOOKING_PAYMENT_SUCCESS",
+            "BOOKING_WORK_STARTED",
+            "BOOKING_COMPLETED",
+            "BOOKING_CANCELLED"
+    );
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -30,6 +38,7 @@ public class NotificationService {
 
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("userId", userId)
+                .addValue("allowedBookingTypes", ALLOWED_USER_BOOKING_TYPES)
                 .addValue("unreadOnly", unreadOnly)
                 .addValue("limit", safeSize)
                 .addValue("offset", safePage * safeSize);
@@ -48,6 +57,10 @@ public class NotificationService {
                     n.created_at
                 FROM notifications n
                 WHERE n.user_id = :userId
+                  AND (
+                        n.notification_type NOT LIKE 'BOOKING\\_%'
+                        OR n.notification_type IN (:allowedBookingTypes)
+                  )
                   AND (:unreadOnly = false OR n.read_at IS NULL)
                 ORDER BY CASE WHEN n.read_at IS NULL THEN 0 ELSE 1 END, n.created_at DESC, n.id DESC
                 LIMIT :limit OFFSET :offset
@@ -68,8 +81,15 @@ public class NotificationService {
                 SELECT COUNT(1)
                 FROM notifications
                 WHERE user_id = :userId
+                  AND (
+                        notification_type NOT LIKE 'BOOKING\\_%'
+                        OR notification_type IN (:allowedBookingTypes)
+                  )
                   AND read_at IS NULL
-                """, Map.of("userId", userId), Long.class);
+                """, Map.of(
+                "userId", userId,
+                "allowedBookingTypes", ALLOWED_USER_BOOKING_TYPES
+        ), Long.class);
 
         return new NotificationListResponse(items, unreadCount == null ? 0 : unreadCount);
     }
