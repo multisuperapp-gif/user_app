@@ -93,9 +93,12 @@ public class LabourQueryService {
                 WITH labour_rows AS (
                     SELECT
                         lp.id AS labour_id,
-                        COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.id END), MIN(lc.id)) AS category_id,
                         COALESCE(
-                            GROUP_CONCAT(DISTINCT lc.name ORDER BY lc.name SEPARATOR ', '),
+                            MAX(CASE WHEN lc.id = :categoryId AND lpr.id IS NOT NULL THEN lc.id END),
+                            MIN(CASE WHEN lpr.id IS NOT NULL THEN lc.id END)
+                        ) AS category_id,
+                        COALESCE(
+                            GROUP_CONCAT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN lc.name END ORDER BY lc.name SEPARATOR ', '),
                             'All labour'
                         ) AS category_name,
                         COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
@@ -106,9 +109,10 @@ public class LabourQueryService {
                         lp.total_jobs_completed,
                         lp.online_status,
                         COALESCE(active_bookings.active_booking_count, 0) AS active_booking_count,
-                        COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
-                        COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
-                        COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                        COALESCE(MIN(CASE WHEN lpr.pricing_model = 'HOURLY' THEN lpr.hourly_price END), 0.00) AS hourly_rate,
+                        COALESCE(MIN(CASE WHEN lpr.pricing_model = 'HALF_DAY' THEN lpr.half_day_price END), 0.00) AS half_day_rate,
+                        COALESCE(MIN(CASE WHEN lpr.pricing_model = 'FULL_DAY' THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                        COUNT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN lc.id END) AS enabled_category_count,
                         MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
                         MIN(
                             CASE
@@ -138,14 +142,17 @@ public class LabourQueryService {
                             WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 1
                             ELSE 2
                         END AS availability_rank,
-                        GROUP_CONCAT(DISTINCT ls.skill_name ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
+                        GROUP_CONCAT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN ls.skill_name END ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
                     FROM labour_profiles lp
                     INNER JOIN users u ON u.id = lp.user_id
                     LEFT JOIN user_profiles up ON up.user_id = u.id
                     LEFT JOIN files photo ON photo.id = up.photo_file_id
                     LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
                     LEFT JOIN labour_categories lc ON lc.id = ls.category_id
-                    LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
+                    LEFT JOIN labour_pricing lpr
+                           ON lpr.labour_id = lp.id
+                          AND lpr.category_id = ls.category_id
+                          AND lpr.is_enabled = 1
                     LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
                     LEFT JOIN (
                         SELECT provider_entity_id, COUNT(1) AS active_booking_count
@@ -162,6 +169,13 @@ public class LabourQueryService {
                             FROM labour_skills skill_filter
                             WHERE skill_filter.labour_id = lp.id
                               AND skill_filter.category_id = :categoryId
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM labour_pricing price_filter
+                                  WHERE price_filter.labour_id = lp.id
+                                    AND price_filter.category_id = :categoryId
+                                    AND price_filter.is_enabled = 1
+                              )
                       ))
                       AND (:userCity IS NULL OR EXISTS (
                             SELECT 1
@@ -192,6 +206,7 @@ public class LabourQueryService {
                         OR radius_km <= 0
                         OR distance_km <= radius_km
                     )
+                    AND enabled_category_count > 0
                 ),
                 preferred_rank AS (
                     SELECT MIN(availability_rank) AS selected_rank
@@ -253,6 +268,10 @@ public class LabourQueryService {
         List<String> skills = jdbcTemplate.query("""
                 SELECT DISTINCT ls.skill_name
                 FROM labour_skills ls
+                INNER JOIN labour_pricing lpr
+                    ON lpr.labour_id = ls.labour_id
+                   AND lpr.category_id = ls.category_id
+                   AND lpr.is_enabled = 1
                 WHERE ls.labour_id = :labourId
                 ORDER BY ls.skill_name ASC
                 """, Map.of("labourId", labourId), (rs, rowNum) -> rs.getString("skill_name"));
@@ -300,9 +319,9 @@ public class LabourQueryService {
         List<LabourApiDtos.LabourProfileCardResponse> rows = jdbcTemplate.query("""
                 SELECT
                     lp.id AS labour_id,
-                    MIN(lc.id) AS category_id,
+                    MIN(CASE WHEN lpr.id IS NOT NULL THEN lc.id END) AS category_id,
                     COALESCE(
-                        GROUP_CONCAT(DISTINCT lc.name ORDER BY lc.name SEPARATOR ', '),
+                        GROUP_CONCAT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN lc.name END ORDER BY lc.name SEPARATOR ', '),
                         'All labour'
                     ) AS category_name,
                     COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
@@ -313,9 +332,10 @@ public class LabourQueryService {
                     lp.total_jobs_completed,
                     lp.online_status,
                     COALESCE(active_bookings.active_booking_count, 0) AS active_booking_count,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                    COALESCE(MIN(CASE WHEN lpr.pricing_model = 'HOURLY' THEN lpr.hourly_price END), 0.00) AS hourly_rate,
+                    COALESCE(MIN(CASE WHEN lpr.pricing_model = 'HALF_DAY' THEN lpr.half_day_price END), 0.00) AS half_day_rate,
+                    COALESCE(MIN(CASE WHEN lpr.pricing_model = 'FULL_DAY' THEN lpr.full_day_price END), 0.00) AS full_day_rate,
+                    COUNT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN lc.id END) AS enabled_category_count,
                     MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
                     MIN(
                         CASE
@@ -340,14 +360,17 @@ public class LabourQueryService {
                         WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 1
                         ELSE 0
                     END AS available_now,
-                    GROUP_CONCAT(DISTINCT ls.skill_name ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
+                    GROUP_CONCAT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN ls.skill_name END ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
                 FROM labour_profiles lp
                 INNER JOIN users u ON u.id = lp.user_id
                 LEFT JOIN user_profiles up ON up.user_id = u.id
                 LEFT JOIN files photo ON photo.id = up.photo_file_id
                 LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
                 LEFT JOIN labour_categories lc ON lc.id = ls.category_id
-                LEFT JOIN labour_pricing lpr ON lpr.labour_id = lp.id
+                LEFT JOIN labour_pricing lpr
+                       ON lpr.labour_id = lp.id
+                      AND lpr.category_id = ls.category_id
+                      AND lpr.is_enabled = 1
                 LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
                 LEFT JOIN (
                     SELECT provider_entity_id, COUNT(1) AS active_booking_count
@@ -377,6 +400,7 @@ public class LabourQueryService {
                     OR radius_km <= 0
                     OR distance_km <= radius_km
                 )
+                AND enabled_category_count > 0
                 LIMIT 1
                 """, params, (rs, rowNum) -> new LabourApiDtos.LabourProfileCardResponse(
                 rs.getLong("labour_id"),
