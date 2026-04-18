@@ -22,7 +22,8 @@ public final class BookingPaymentRequestDtos {
             BigDecimal priceMinAmount,
             BigDecimal priceMaxAmount,
             BigDecimal searchLatitude,
-            BigDecimal searchLongitude
+            BigDecimal searchLongitude,
+            Integer requestedProviderCount
     ) {
     }
 
@@ -56,7 +57,12 @@ public final class BookingPaymentRequestDtos {
             String providerName,
             String providerPhone,
             BigDecimal quotedPriceAmount,
+            BigDecimal totalAcceptedQuotedPriceAmount,
+            BigDecimal totalAcceptedBookingChargeAmount,
             BigDecimal distanceKm,
+            Integer requestedProviderCount,
+            Integer acceptedProviderCount,
+            Integer pendingProviderCount,
             Long bookingId,
             String bookingCode,
             String bookingStatus,
@@ -65,7 +71,13 @@ public final class BookingPaymentRequestDtos {
     }
 
     public record InitiateBookingPaymentRequest(
-            Long bookingId
+            Long bookingId,
+            Long bookingRequestId
+    ) {
+    }
+
+    public record CancelBookingRequest(
+            String reason
     ) {
     }
 

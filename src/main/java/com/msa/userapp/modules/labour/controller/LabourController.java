@@ -50,6 +50,11 @@ public class LabourController {
         return ApiResponse.ok(labourQueryService.categories());
     }
 
+    @GetMapping("/api/v1/public/labour/booking-policy")
+    public ApiResponse<LabourApiDtos.LabourBookingPolicyResponse> bookingPolicy() {
+        return ApiResponse.ok(labourBookingRequestService.bookingPolicy());
+    }
+
     @GetMapping("/api/v1/public/labour/profiles")
     public ApiResponse<PageResponse<LabourApiDtos.LabourProfileCardResponse>> profiles(
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
@@ -94,6 +99,22 @@ public class LabourController {
             @PathVariable Long requestId
     ) {
         return ApiResponse.ok(labourBookingRequestService.initiatePayment(authorizationHeader, userId, requestId));
+    }
+
+    @PostMapping("/api/v1/labour/booking-requests/{requestId}/cancel")
+    public ApiResponse<Void> cancelRequest(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId,
+            @RequestBody(required = false) LabourApiDtos.CancelLabourBookingRequest request
+    ) {
+        labourBookingRequestService.cancelRequest(
+                authorizationHeader,
+                userId,
+                requestId,
+                request == null ? null : request.reason()
+        );
+        return ApiResponse.success("Labour booking request cancelled successfully");
     }
 
     @PostMapping("/api/v1/labour/bookings/group-request")

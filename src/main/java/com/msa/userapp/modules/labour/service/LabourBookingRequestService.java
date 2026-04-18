@@ -12,6 +12,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,10 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class LabourBookingRequestService {
+    private static final String PLATFORM_FEE_LABOUR_SETTING_KEY = "platform.fee.labour";
+    private static final BigDecimal DEFAULT_LABOUR_BOOKING_PERCENT = new BigDecimal("5.00");
+    private static final int MAX_GROUP_LABOUR_COUNT = 7;
+
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final LabourQueryService labourQueryService;
     private final BookingPaymentRequestClient bookingPaymentRequestClient;
@@ -75,7 +80,8 @@ public class LabourBookingRequestService {
                                 amount,
                                 amount,
                                 address.latitude(),
-                                address.longitude()
+                                address.longitude(),
+                                1
                         )
                 )
         ));
@@ -102,6 +108,9 @@ public class LabourBookingRequestService {
         if (request.labourCount() == null || request.labourCount() <= 0) {
             throw new BadRequestException("Please enter number of labour required");
         }
+        if (request.labourCount() > MAX_GROUP_LABOUR_COUNT) {
+            throw new BadRequestException("Maximum " + MAX_GROUP_LABOUR_COUNT + " labour can be booked at once");
+        }
         if (request.maxPrice() == null || request.maxPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException("Please enter a valid max price");
         }
@@ -127,22 +136,38 @@ public class LabourBookingRequestService {
                                 BigDecimal.ZERO,
                                 request.maxPrice(),
                                 address.latitude(),
-                                address.longitude()
+                                address.longitude(),
+                                request.labourCount()
                         )
                 )
         ));
         int availableCandidates = data.candidates() == null ? 0 : data.candidates().size();
-        BigDecimal platformAmount = request.maxPrice()
+        BigDecimal estimatedLabourAmount = request.maxPrice()
                 .multiply(BigDecimal.valueOf(request.labourCount()))
                 .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal bookingChargePercent = labourBookingChargePercent();
+        BigDecimal platformAmount = estimatedLabourAmount
+                .multiply(bookingChargePercent)
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         return new LabourApiDtos.GroupLabourBookingResponse(
                 data.id(),
                 data.requestCode(),
                 availableCandidates,
                 request.labourCount(),
+                bookingChargePercent,
+                estimatedLabourAmount,
                 platformAmount,
                 "INR",
                 data.requestStatus()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public LabourApiDtos.LabourBookingPolicyResponse bookingPolicy() {
+        return new LabourApiDtos.LabourBookingPolicyResponse(
+                labourBookingChargePercent(),
+                "INR",
+                MAX_GROUP_LABOUR_COUNT
         );
     }
 
@@ -162,7 +187,12 @@ public class LabourBookingRequestService {
                 data.providerName(),
                 data.providerPhone(),
                 data.quotedPriceAmount(),
+                data.totalAcceptedQuotedPriceAmount(),
+                data.totalAcceptedBookingChargeAmount(),
                 data.distanceKm(),
+                data.requestedProviderCount() == null ? 1 : data.requestedProviderCount(),
+                data.acceptedProviderCount() == null ? 0 : data.acceptedProviderCount(),
+                data.pendingProviderCount() == null ? 0 : data.pendingProviderCount(),
                 data.bookingId(),
                 data.bookingCode(),
                 data.bookingStatus(),
@@ -187,7 +217,14 @@ public class LabourBookingRequestService {
                 () -> bookingPaymentRequestClient.initiateBookingPayment(
                         authorizationHeader,
                         userId,
-                        new BookingPaymentRequestDtos.InitiateBookingPaymentRequest(status.bookingId())
+                        new BookingPaymentRequestDtos.InitiateBookingPaymentRequest(
+                                status.requestedProviderCount() != null && status.requestedProviderCount() > 1
+                                        ? null
+                                        : status.bookingId(),
+                                status.requestedProviderCount() != null && status.requestedProviderCount() > 1
+                                        ? status.requestId()
+                                        : null
+                        )
                 )
         ));
         return new LabourApiDtos.LabourBookingPaymentResponse(
@@ -199,7 +236,27 @@ public class LabourBookingRequestService {
         );
     }
 
+    public void cancelRequest(
+            String authorizationHeader,
+            Long userId,
+            Long requestId,
+            String reason
+    ) {
+        call(() -> bookingPaymentRequestClient.cancel(
+                authorizationHeader,
+                userId,
+                requestId,
+                new BookingPaymentRequestDtos.CancelBookingRequest(reason)
+        ));
+    }
+
     private boolean canMakePayment(BookingPaymentRequestDtos.UserBookingRequestStatusData data) {
+        if (data.acceptedProviderCount() != null && data.acceptedProviderCount() > 1) {
+            return data.requestId() != null
+                    && (data.paymentStatus() == null
+                    || "UNPAID".equalsIgnoreCase(data.paymentStatus())
+                    || "PENDING".equalsIgnoreCase(data.paymentStatus()));
+        }
         return data.bookingId() != null
                 && "PAYMENT_PENDING".equalsIgnoreCase(data.bookingStatus())
                 && (data.paymentStatus() == null || "UNPAID".equalsIgnoreCase(data.paymentStatus()));
@@ -324,6 +381,29 @@ public class LabourBookingRequestService {
             throw new BadRequestException("Booking service returned no data");
         }
         return response.data();
+    }
+
+    private BigDecimal labourBookingChargePercent() {
+        try {
+            List<BigDecimal> values = jdbcTemplate.query("""
+                    SELECT setting_value
+                    FROM app_settings
+                    WHERE setting_key = :settingKey
+                    LIMIT 1
+                    """, new MapSqlParameterSource("settingKey", PLATFORM_FEE_LABOUR_SETTING_KEY), (rs, rowNum) -> {
+                try {
+                    return new BigDecimal(rs.getString("setting_value"));
+                } catch (NumberFormatException exception) {
+                    return DEFAULT_LABOUR_BOOKING_PERCENT;
+                }
+            });
+            if (values.isEmpty() || values.getFirst() == null || values.getFirst().compareTo(BigDecimal.ZERO) < 0) {
+                return DEFAULT_LABOUR_BOOKING_PERCENT;
+            }
+            return values.getFirst().setScale(2, RoundingMode.HALF_UP);
+        } catch (DataAccessException exception) {
+            return DEFAULT_LABOUR_BOOKING_PERCENT;
+        }
     }
 
     private <T> BookingPaymentApiResponse<T> call(FeignCall<T> call) {

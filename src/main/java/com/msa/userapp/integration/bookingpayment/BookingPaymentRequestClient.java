@@ -25,6 +25,14 @@ public interface BookingPaymentRequestClient {
             @PathVariable Long requestId
     );
 
+    @PostMapping("/booking-requests/{requestId}/cancel")
+    BookingPaymentApiResponse<Void> cancel(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId,
+            @RequestBody BookingPaymentRequestDtos.CancelBookingRequest request
+    );
+
     @PostMapping("/booking-payments/initiate")
     BookingPaymentApiResponse<BookingPaymentRequestDtos.BookingPaymentData> initiateBookingPayment(
             @RequestHeader("Authorization") String authorizationHeader,

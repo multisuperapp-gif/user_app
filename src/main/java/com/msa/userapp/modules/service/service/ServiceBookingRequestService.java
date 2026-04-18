@@ -72,7 +72,8 @@ public class ServiceBookingRequestService {
                                 target.visitingCharge(),
                                 target.visitingCharge(),
                                 address.latitude(),
-                                address.longitude()
+                                address.longitude(),
+                                1
                         )
                 )
         ));
@@ -129,7 +130,7 @@ public class ServiceBookingRequestService {
                 () -> bookingPaymentRequestClient.initiateBookingPayment(
                         authorizationHeader,
                         userId,
-                        new BookingPaymentRequestDtos.InitiateBookingPaymentRequest(status.bookingId())
+                        new BookingPaymentRequestDtos.InitiateBookingPaymentRequest(status.bookingId(), null)
                 )
         ));
         return new ServiceApiDtos.ServiceBookingPaymentResponse(

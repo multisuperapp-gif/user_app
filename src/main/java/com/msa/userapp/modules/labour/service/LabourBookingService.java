@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -19,6 +20,10 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class LabourBookingService {
+    private static final String PLATFORM_FEE_LABOUR_SETTING_KEY = "platform.fee.labour";
+    private static final BigDecimal DEFAULT_LABOUR_BOOKING_PERCENT = new BigDecimal("5.00");
+    private static final int MAX_GROUP_LABOUR_COUNT = 7;
+
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final LabourQueryService labourQueryService;
 
@@ -99,6 +104,9 @@ public class LabourBookingService {
         if (request.labourCount() == null || request.labourCount() <= 0) {
             throw new BadRequestException("Please enter number of labour required");
         }
+        if (request.labourCount() > MAX_GROUP_LABOUR_COUNT) {
+            throw new BadRequestException("Maximum " + MAX_GROUP_LABOUR_COUNT + " labour can be booked at once");
+        }
         if (request.maxPrice() == null || request.maxPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException("Please enter a valid max price");
         }
@@ -159,18 +167,47 @@ public class LabourBookingService {
                     .addValue("expiresAt", expiresAt));
         }
 
-        BigDecimal platformAmount = BigDecimal.valueOf(request.labourCount())
-                .multiply(BigDecimal.valueOf(25))
+        BigDecimal bookingChargePercent = labourBookingChargePercent();
+        BigDecimal estimatedLabourAmount = request.maxPrice()
+                .multiply(BigDecimal.valueOf(request.labourCount()))
                 .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal platformAmount = estimatedLabourAmount
+                .multiply(bookingChargePercent)
+                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         return new LabourApiDtos.GroupLabourBookingResponse(
                 requestId,
                 requestCode,
                 candidates.size(),
                 request.labourCount(),
+                bookingChargePercent,
+                estimatedLabourAmount,
                 platformAmount,
                 "INR",
                 "OPEN"
         );
+    }
+
+    private BigDecimal labourBookingChargePercent() {
+        try {
+            List<BigDecimal> values = jdbcTemplate.query("""
+                    SELECT setting_value
+                    FROM app_settings
+                    WHERE setting_key = :settingKey
+                    LIMIT 1
+                    """, new MapSqlParameterSource("settingKey", PLATFORM_FEE_LABOUR_SETTING_KEY), (rs, rowNum) -> {
+                try {
+                    return new BigDecimal(rs.getString("setting_value"));
+                } catch (NumberFormatException exception) {
+                    return DEFAULT_LABOUR_BOOKING_PERCENT;
+                }
+            });
+            if (values.isEmpty() || values.getFirst() == null || values.getFirst().compareTo(BigDecimal.ZERO) < 0) {
+                return DEFAULT_LABOUR_BOOKING_PERCENT;
+            }
+            return values.getFirst().setScale(2, RoundingMode.HALF_UP);
+        } catch (DataAccessException exception) {
+            return DEFAULT_LABOUR_BOOKING_PERCENT;
+        }
     }
 
     private LabourProviderRow requireLabourProvider(Long userId, Long labourId, Long categoryId, AddressRow address) {

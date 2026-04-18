@@ -49,11 +49,23 @@ public final class LabourApiDtos {
     ) {
     }
 
+    public record LabourBookingPolicyResponse(
+            BigDecimal bookingChargePercent,
+            String currencyCode,
+            int maxGroupLabourCount
+    ) {
+    }
+
     public record DirectLabourBookingRequest(
             Long labourId,
             Long categoryId,
             Long addressId,
             String bookingPeriod
+    ) {
+    }
+
+    public record CancelLabourBookingRequest(
+            String reason
     ) {
     }
 
@@ -74,7 +86,12 @@ public final class LabourApiDtos {
             String providerName,
             String providerPhone,
             BigDecimal quotedPriceAmount,
+            BigDecimal totalAcceptedQuotedPriceAmount,
+            BigDecimal totalAcceptedBookingChargeAmount,
             BigDecimal distanceKm,
+            int requestedProviderCount,
+            int acceptedProviderCount,
+            int pendingProviderCount,
             Long bookingId,
             String bookingCode,
             String bookingStatus,
@@ -106,6 +123,8 @@ public final class LabourApiDtos {
             String requestCode,
             int availableCandidates,
             int requestedCount,
+            BigDecimal bookingChargePercent,
+            BigDecimal estimatedLabourAmount,
             BigDecimal platformAmountDue,
             String currencyCode,
             String requestStatus
