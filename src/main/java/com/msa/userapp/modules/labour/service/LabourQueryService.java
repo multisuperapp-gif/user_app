@@ -129,17 +129,23 @@ public class LabourQueryService {
                             END
                         ) AS distance_km,
                         CASE
-                            WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 'BOOKED'
+                            WHEN COALESCE(active_bookings.active_booking_count, 0) > 0
+                                OR COALESCE(active_requests.accepted_request_count, 0) > 0 THEN 'BOOKED'
                             WHEN lp.online_status = 1 THEN 'ONLINE'
                             ELSE 'OFFLINE'
                         END AS availability_status,
                         CASE
-                            WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 1
+                            WHEN lp.online_status = 1
+                                AND COALESCE(active_bookings.active_booking_count, 0) = 0
+                                AND COALESCE(active_requests.accepted_request_count, 0) = 0 THEN 1
                             ELSE 0
                         END AS available_now,
                         CASE
-                            WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 0
-                            WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 1
+                            WHEN lp.online_status = 1
+                                AND COALESCE(active_bookings.active_booking_count, 0) = 0
+                                AND COALESCE(active_requests.accepted_request_count, 0) = 0 THEN 0
+                            WHEN COALESCE(active_bookings.active_booking_count, 0) > 0
+                                OR COALESCE(active_requests.accepted_request_count, 0) > 0 THEN 1
                             ELSE 2
                         END AS availability_rank,
                         GROUP_CONCAT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN ls.skill_name END ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
@@ -161,6 +167,15 @@ public class LabourQueryService {
                           AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                         GROUP BY provider_entity_id
                     ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                    LEFT JOIN (
+                        SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
+                        FROM booking_request_candidates brc
+                        INNER JOIN booking_requests br ON br.id = brc.request_id
+                        WHERE brc.provider_entity_type = 'LABOUR'
+                          AND brc.candidate_status = 'ACCEPTED'
+                          AND br.request_status IN ('OPEN', 'ACCEPTED', 'CONVERTED_TO_BOOKING')
+                        GROUP BY brc.provider_entity_id
+                    ) active_requests ON active_requests.provider_entity_id = lp.id
                     WHERE lp.approval_status = 'APPROVED'
                       AND (:currentUserId IS NULL OR u.id <> :currentUserId)
                       AND (:currentUserPhone IS NULL OR u.phone <> :currentUserPhone)
@@ -198,7 +213,8 @@ public class LabourQueryService {
                         lp.avg_rating,
                         lp.total_jobs_completed,
                         lp.online_status,
-                        active_bookings.active_booking_count
+                        active_bookings.active_booking_count,
+                        active_requests.accepted_request_count
                     HAVING (
                         :userLatitude IS NULL
                         OR :userLongitude IS NULL
@@ -207,15 +223,11 @@ public class LabourQueryService {
                         OR distance_km <= radius_km
                     )
                     AND enabled_category_count > 0
-                ),
-                preferred_rank AS (
-                    SELECT MIN(availability_rank) AS selected_rank
-                    FROM labour_rows
                 )
                 SELECT *
                 FROM labour_rows
-                WHERE availability_rank = (SELECT selected_rank FROM preferred_rank)
                 ORDER BY
+                    availability_rank ASC,
                     distance_km ASC,
                     avg_rating DESC,
                     total_jobs_completed DESC,
@@ -297,6 +309,7 @@ public class LabourQueryService {
                 SELECT id
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND is_booking_temp = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> rs.getLong("id"));
@@ -352,12 +365,15 @@ public class LabourQueryService {
                         END
                     ) AS distance_km,
                     CASE
-                        WHEN COALESCE(active_bookings.active_booking_count, 0) > 0 THEN 'BOOKED'
+                        WHEN COALESCE(active_bookings.active_booking_count, 0) > 0
+                            OR COALESCE(active_requests.accepted_request_count, 0) > 0 THEN 'BOOKED'
                         WHEN lp.online_status = 1 THEN 'ONLINE'
                         ELSE 'OFFLINE'
                     END AS availability_status,
                     CASE
-                        WHEN lp.online_status = 1 AND COALESCE(active_bookings.active_booking_count, 0) = 0 THEN 1
+                        WHEN lp.online_status = 1
+                            AND COALESCE(active_bookings.active_booking_count, 0) = 0
+                            AND COALESCE(active_requests.accepted_request_count, 0) = 0 THEN 1
                         ELSE 0
                     END AS available_now,
                     GROUP_CONCAT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN ls.skill_name END ORDER BY ls.skill_name SEPARATOR ', ') AS skills_summary
@@ -379,6 +395,15 @@ public class LabourQueryService {
                       AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                     GROUP BY provider_entity_id
                 ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                LEFT JOIN (
+                    SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
+                    FROM booking_request_candidates brc
+                    INNER JOIN booking_requests br ON br.id = brc.request_id
+                    WHERE brc.provider_entity_type = 'LABOUR'
+                      AND brc.candidate_status = 'ACCEPTED'
+                      AND br.request_status IN ('OPEN', 'ACCEPTED', 'CONVERTED_TO_BOOKING')
+                    GROUP BY brc.provider_entity_id
+                ) active_requests ON active_requests.provider_entity_id = lp.id
                 WHERE lp.id = :labourId
                   AND lp.approval_status = 'APPROVED'
                   AND (:currentUserId IS NULL OR u.id <> :currentUserId)
@@ -392,7 +417,8 @@ public class LabourQueryService {
                     lp.avg_rating,
                     lp.total_jobs_completed,
                     lp.online_status,
-                    active_bookings.active_booking_count
+                    active_bookings.active_booking_count,
+                    active_requests.accepted_request_count
                 HAVING (
                     :userLatitude IS NULL
                     OR :userLongitude IS NULL

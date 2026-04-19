@@ -138,6 +138,7 @@ public class ProfileService {
                     updated_at
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND is_booking_temp = 0
                 ORDER BY is_default DESC, updated_at DESC, id DESC
                 """, Map.of("userId", userId), (rs, rowNum) -> mapAddress(rs.getLong("id"), rs));
     }
@@ -169,7 +170,8 @@ public class ProfileService {
                     postal_code,
                     latitude,
                     longitude,
-                    is_default
+                    is_default,
+                    is_booking_temp
                 ) VALUES (
                     :userId,
                     :label,
@@ -184,7 +186,8 @@ public class ProfileService {
                     :postalCode,
                     :latitude,
                     :longitude,
-                    :isDefault
+                    :isDefault,
+                    0
                 )
                 """, new MapSqlParameterSource()
                 .addValue("userId", userId)
@@ -205,6 +208,68 @@ public class ProfileService {
         Number key = keyHolder.getKey();
         if (key == null) {
             throw new BadRequestException("Address could not be created");
+        }
+        return address(userId, key.longValue());
+    }
+
+    @Transactional
+    public UserAddressResponse createTemporaryBookingAddress(Long userId, UpsertUserAddressRequest request) {
+        validateUserExists(userId);
+        ValidatedAddress validated = validateAddress(request);
+
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update("""
+                INSERT INTO user_addresses (
+                    user_id,
+                    label,
+                    address_line1,
+                    address_line2,
+                    landmark,
+                    city,
+                    state_id,
+                    state,
+                    country_id,
+                    country,
+                    postal_code,
+                    latitude,
+                    longitude,
+                    is_default,
+                    is_booking_temp
+                ) VALUES (
+                    :userId,
+                    :label,
+                    :addressLine1,
+                    :addressLine2,
+                    :landmark,
+                    :city,
+                    :stateId,
+                    :state,
+                    :countryId,
+                    :country,
+                    :postalCode,
+                    :latitude,
+                    :longitude,
+                    0,
+                    1
+                )
+                """, new MapSqlParameterSource()
+                .addValue("userId", userId)
+                .addValue("label", validated.label())
+                .addValue("addressLine1", validated.addressLine1())
+                .addValue("addressLine2", validated.addressLine2())
+                .addValue("landmark", validated.landmark())
+                .addValue("city", validated.city())
+                .addValue("stateId", validated.stateId())
+                .addValue("state", validated.state())
+                .addValue("countryId", validated.countryId())
+                .addValue("country", validated.country())
+                .addValue("postalCode", validated.postalCode())
+                .addValue("latitude", validated.latitude())
+                .addValue("longitude", validated.longitude()), keyHolder, new String[]{"id"});
+
+        Number key = keyHolder.getKey();
+        if (key == null) {
+            throw new BadRequestException("Temporary booking address could not be created");
         }
         return address(userId, key.longValue());
     }
@@ -279,6 +344,7 @@ public class ProfileService {
                             SELECT id
                             FROM user_addresses
                             WHERE user_id = :userId
+                              AND is_booking_temp = 0
                             ORDER BY updated_at DESC, id DESC
                             LIMIT 1
                         ) remaining
@@ -422,6 +488,7 @@ public class ProfileService {
                 SELECT COUNT(1)
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND is_booking_temp = 0
                 """, Map.of("userId", userId), Integer.class);
         return count == null ? 0 : count;
     }

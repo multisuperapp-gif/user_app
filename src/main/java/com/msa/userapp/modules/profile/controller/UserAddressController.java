@@ -37,6 +37,14 @@ public class UserAddressController {
         return ApiResponse.ok(profileService.createAddress(userId, request));
     }
 
+    @PostMapping("/temporary-booking")
+    public ApiResponse<UserAddressResponse> createTemporaryBookingAddress(
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody UpsertUserAddressRequest request
+    ) {
+        return ApiResponse.ok(profileService.createTemporaryBookingAddress(userId, request));
+    }
+
     @PutMapping("/{addressId}")
     public ApiResponse<UserAddressResponse> update(
             @RequestHeader("X-User-Id") Long userId,

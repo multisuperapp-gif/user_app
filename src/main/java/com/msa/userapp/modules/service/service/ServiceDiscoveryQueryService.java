@@ -306,6 +306,7 @@ public class ServiceDiscoveryQueryService {
                 SELECT id
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND is_booking_temp = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> rs.getLong("id"));

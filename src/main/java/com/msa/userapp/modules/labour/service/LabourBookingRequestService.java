@@ -299,10 +299,20 @@ public class LabourBookingRequestService {
                       AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                     GROUP BY provider_entity_id
                 ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                LEFT JOIN (
+                    SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
+                    FROM booking_request_candidates brc
+                    INNER JOIN booking_requests br ON br.id = brc.request_id
+                    WHERE brc.provider_entity_type = 'LABOUR'
+                      AND brc.candidate_status = 'ACCEPTED'
+                      AND br.request_status IN ('OPEN', 'ACCEPTED', 'CONVERTED_TO_BOOKING')
+                    GROUP BY brc.provider_entity_id
+                ) active_requests ON active_requests.provider_entity_id = lp.id
                 WHERE lp.id = :labourId
                   AND lp.approval_status = 'APPROVED'
                   AND lp.online_status = 1
                   AND COALESCE(active_bookings.active_booking_count, 0) = 0
+                  AND COALESCE(active_requests.accepted_request_count, 0) = 0
                   AND u.id <> :userId
                   AND (:categoryId IS NULL OR EXISTS (
                         SELECT 1
