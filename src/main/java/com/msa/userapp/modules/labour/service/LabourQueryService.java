@@ -173,7 +173,8 @@ public class LabourQueryService {
                         INNER JOIN booking_requests br ON br.id = brc.request_id
                         WHERE brc.provider_entity_type = 'LABOUR'
                           AND brc.candidate_status = 'ACCEPTED'
-                          AND br.request_status IN ('OPEN', 'ACCEPTED', 'CONVERTED_TO_BOOKING')
+                          AND br.request_status IN ('OPEN', 'ACCEPTED')
+                          AND (br.request_status <> 'OPEN' OR br.expires_at > CURRENT_TIMESTAMP)
                         GROUP BY brc.provider_entity_id
                     ) active_requests ON active_requests.provider_entity_id = lp.id
                     WHERE lp.approval_status = 'APPROVED'
@@ -401,7 +402,8 @@ public class LabourQueryService {
                     INNER JOIN booking_requests br ON br.id = brc.request_id
                     WHERE brc.provider_entity_type = 'LABOUR'
                       AND brc.candidate_status = 'ACCEPTED'
-                      AND br.request_status IN ('OPEN', 'ACCEPTED', 'CONVERTED_TO_BOOKING')
+                      AND br.request_status IN ('OPEN', 'ACCEPTED')
+                      AND (br.request_status <> 'OPEN' OR br.expires_at > CURRENT_TIMESTAMP)
                     GROUP BY brc.provider_entity_id
                 ) active_requests ON active_requests.provider_entity_id = lp.id
                 WHERE lp.id = :labourId
