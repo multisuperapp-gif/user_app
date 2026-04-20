@@ -341,9 +341,88 @@ public class LabourBookingRequestService {
                 rs.getBigDecimal("full_day_rate")
         ));
         if (rows.isEmpty()) {
+            DirectLabourEligibilityRow diagnostic = findDirectLabourEligibility(userId, labourId, categoryId, address);
+            if (diagnostic != null
+                    && diagnostic.radiusKm() != null
+                    && diagnostic.radiusKm().compareTo(BigDecimal.ZERO) > 0
+                    && diagnostic.distanceKm() != null
+                    && diagnostic.distanceKm().compareTo(diagnostic.radiusKm()) > 0) {
+                throw new BadRequestException("Selected address is outside this labour's working range. Please choose a nearer address or another labour.");
+            }
             throw new NotFoundException("Labour is offline, booked, or not available");
         }
         return rows.getFirst();
+    }
+
+    private DirectLabourEligibilityRow findDirectLabourEligibility(
+            Long userId,
+            Long labourId,
+            Long categoryId,
+            AddressRow address
+    ) {
+        List<DirectLabourEligibilityRow> rows = jdbcTemplate.query("""
+                SELECT
+                    MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
+                    MIN(
+                        6371 * ACOS(
+                            LEAST(
+                                1,
+                                COS(RADIANS(:latitude)) * COS(RADIANS(lsa.center_latitude))
+                                * COS(RADIANS(lsa.center_longitude) - RADIANS(:longitude))
+                                + SIN(RADIANS(:latitude)) * SIN(RADIANS(lsa.center_latitude))
+                            )
+                        )
+                    ) AS distance_km
+                FROM labour_profiles lp
+                INNER JOIN users u ON u.id = lp.user_id
+                LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
+                LEFT JOIN labour_pricing lpr
+                    ON lpr.labour_id = lp.id
+                   AND (:categoryId IS NULL OR lpr.category_id = :categoryId)
+                   AND lpr.is_enabled = 1
+                LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'LABOUR'
+                      AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
+                    GROUP BY provider_entity_id
+                ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                LEFT JOIN (
+                    SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
+                    FROM booking_request_candidates brc
+                    INNER JOIN booking_requests br ON br.id = brc.request_id
+                    WHERE brc.provider_entity_type = 'LABOUR'
+                      AND brc.candidate_status = 'ACCEPTED'
+                      AND br.request_status IN ('OPEN', 'ACCEPTED')
+                      AND (br.request_status <> 'OPEN' OR br.expires_at > CURRENT_TIMESTAMP)
+                    GROUP BY brc.provider_entity_id
+                ) active_requests ON active_requests.provider_entity_id = lp.id
+                WHERE lp.id = :labourId
+                  AND lp.approval_status = 'APPROVED'
+                  AND lp.online_status = 1
+                  AND COALESCE(active_bookings.active_booking_count, 0) = 0
+                  AND COALESCE(active_requests.accepted_request_count, 0) = 0
+                  AND u.id <> :userId
+                  AND lpr.id IS NOT NULL
+                  AND (:categoryId IS NULL OR EXISTS (
+                        SELECT 1
+                        FROM labour_skills ls_filter
+                        WHERE ls_filter.labour_id = lp.id
+                          AND ls_filter.category_id = :categoryId
+                  ))
+                GROUP BY lp.id
+                LIMIT 1
+                """, new MapSqlParameterSource()
+                .addValue("userId", userId)
+                .addValue("labourId", labourId)
+                .addValue("categoryId", categoryId)
+                .addValue("latitude", address.latitude())
+                .addValue("longitude", address.longitude()), (rs, rowNum) -> new DirectLabourEligibilityRow(
+                rs.getBigDecimal("radius_km"),
+                rs.getBigDecimal("distance_km")
+        ));
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     private AddressRow requireAddress(Long addressId, Long userId) {
@@ -352,6 +431,7 @@ public class LabourBookingRequestService {
                 FROM user_addresses
                 WHERE id = :addressId
                   AND user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 LIMIT 1
                 """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> new AddressRow(
                 rs.getLong("id"),
@@ -458,6 +538,12 @@ public class LabourBookingRequestService {
             BigDecimal hourlyRate,
             BigDecimal halfDayRate,
             BigDecimal fullDayRate
+    ) {
+    }
+
+    private record DirectLabourEligibilityRow(
+            BigDecimal radiusKm,
+            BigDecimal distanceKm
     ) {
     }
 }

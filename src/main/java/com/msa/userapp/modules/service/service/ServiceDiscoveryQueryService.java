@@ -295,6 +295,7 @@ public class ServiceDiscoveryQueryService {
                     FROM user_addresses
                     WHERE id = :addressId
                       AND user_id = :userId
+                      AND address_scope = 'CONSUMER'
                     LIMIT 1
                     """, Map.of("addressId", explicitAddressId, "userId", userId), (rs, rowNum) -> rs.getLong("id"));
             if (rows.isEmpty()) {
@@ -306,6 +307,7 @@ public class ServiceDiscoveryQueryService {
                 SELECT id
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
@@ -472,6 +474,7 @@ public class ServiceDiscoveryQueryService {
                 SELECT city, latitude, longitude
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> new UserLocation(

@@ -106,7 +106,7 @@ public class LabourQueryService {
                         u.phone,
                         lp.experience_years,
                         lp.avg_rating,
-                        lp.total_jobs_completed,
+                        GREATEST(lp.total_jobs_completed, COALESCE(MAX(completed_bookings.completed_job_count), 0)) AS total_jobs_completed,
                         lp.online_status,
                         COALESCE(active_bookings.active_booking_count, 0) AS active_booking_count,
                         COALESCE(MIN(CASE WHEN lpr.pricing_model = 'HOURLY' THEN lpr.hourly_price END), 0.00) AS hourly_rate,
@@ -167,6 +167,13 @@ public class LabourQueryService {
                           AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                         GROUP BY provider_entity_id
                     ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                    LEFT JOIN (
+                        SELECT provider_entity_id, COUNT(1) AS completed_job_count
+                        FROM bookings
+                        WHERE provider_entity_type = 'LABOUR'
+                          AND booking_status = 'COMPLETED'
+                        GROUP BY provider_entity_id
+                    ) completed_bookings ON completed_bookings.provider_entity_id = lp.id
                     LEFT JOIN (
                         SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
                         FROM booking_request_candidates brc
@@ -299,6 +306,7 @@ public class LabourQueryService {
                     FROM user_addresses
                     WHERE id = :addressId
                       AND user_id = :userId
+                      AND address_scope = 'CONSUMER'
                     LIMIT 1
                     """, Map.of("addressId", explicitAddressId, "userId", userId), (rs, rowNum) -> rs.getLong("id"));
             if (rows.isEmpty()) {
@@ -310,6 +318,7 @@ public class LabourQueryService {
                 SELECT id
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
@@ -343,7 +352,7 @@ public class LabourQueryService {
                     u.phone,
                     lp.experience_years,
                     lp.avg_rating,
-                    lp.total_jobs_completed,
+                    GREATEST(lp.total_jobs_completed, COALESCE(MAX(completed_bookings.completed_job_count), 0)) AS total_jobs_completed,
                     lp.online_status,
                     COALESCE(active_bookings.active_booking_count, 0) AS active_booking_count,
                     COALESCE(MIN(CASE WHEN lpr.pricing_model = 'HOURLY' THEN lpr.hourly_price END), 0.00) AS hourly_rate,
@@ -396,6 +405,13 @@ public class LabourQueryService {
                       AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                     GROUP BY provider_entity_id
                 ) active_bookings ON active_bookings.provider_entity_id = lp.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS completed_job_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'LABOUR'
+                      AND booking_status = 'COMPLETED'
+                    GROUP BY provider_entity_id
+                ) completed_bookings ON completed_bookings.provider_entity_id = lp.id
                 LEFT JOIN (
                     SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
                     FROM booking_request_candidates brc
@@ -472,6 +488,7 @@ public class LabourQueryService {
                 SELECT id, city, latitude, longitude
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> new UserLocation(

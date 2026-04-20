@@ -7,6 +7,7 @@ public record UserProfileResponse(
         String publicUserId,
         String phone,
         String fullName,
+        String profilePhotoDataUri,
         String gender,
         LocalDate dob,
         String languageCode

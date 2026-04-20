@@ -231,6 +231,7 @@ public class ServiceBookingRequestService {
                 FROM user_addresses
                 WHERE id = :addressId
                   AND user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 LIMIT 1
                 """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> new AddressRow(
                 rs.getLong("id"),

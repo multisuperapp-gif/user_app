@@ -35,12 +35,13 @@ public class ProfileService {
                     u.id,
                     u.public_user_id,
                     u.phone,
-                    up.full_name,
-                    up.gender,
-                    up.dob,
-                    up.language_code
+                    uap.full_name,
+                    uap.profile_photo_data_uri,
+                    uap.gender,
+                    uap.dob,
+                    uap.language_code
                 FROM users u
-                LEFT JOIN user_profiles up ON up.user_id = u.id
+                LEFT JOIN user_app_profiles uap ON uap.user_id = u.id
                 WHERE u.id = :userId
                 LIMIT 1
                 """, Map.of("userId", userId), rs -> {
@@ -52,6 +53,7 @@ public class ProfileService {
                     rs.getString("public_user_id"),
                     rs.getString("phone"),
                     defaultIfBlank(rs.getString("full_name"), "MSA User"),
+                    defaultIfBlank(rs.getString("profile_photo_data_uri"), ""),
                     defaultIfBlank(rs.getString("gender"), ""),
                     rs.getObject("dob", LocalDate.class),
                     defaultIfBlank(rs.getString("language_code"), "en")
@@ -65,20 +67,22 @@ public class ProfileService {
         UserProfileResponse existing = profile(userId);
 
         String fullName = firstNonBlank(request.fullName(), existing.fullName(), "MSA User");
+        String profilePhotoDataUri = normalizeProfilePhotoDataUri(request.profilePhotoDataUri(), existing.profilePhotoDataUri());
         String gender = normalizeGender(request.gender(), existing.gender());
         LocalDate dob = request.dob() != null ? request.dob() : existing.dob();
         String languageCode = firstNonBlank(request.languageCode(), existing.languageCode(), "en").toLowerCase(Locale.ROOT);
 
         Integer existingProfileCount = jdbcTemplate.queryForObject("""
                 SELECT COUNT(1)
-                FROM user_profiles
+                FROM user_app_profiles
                 WHERE user_id = :userId
                 """, Map.of("userId", userId), Integer.class);
 
         if (existingProfileCount != null && existingProfileCount > 0) {
             jdbcTemplate.update("""
-                    UPDATE user_profiles
+                    UPDATE user_app_profiles
                     SET full_name = :fullName,
+                        profile_photo_data_uri = :profilePhotoDataUri,
                         gender = :gender,
                         dob = :dob,
                         language_code = :languageCode
@@ -86,20 +90,23 @@ public class ProfileService {
                     """, new MapSqlParameterSource()
                     .addValue("userId", userId)
                     .addValue("fullName", fullName)
+                    .addValue("profilePhotoDataUri", blankToNull(profilePhotoDataUri))
                     .addValue("gender", blankToNull(gender))
                     .addValue("dob", dob)
                     .addValue("languageCode", languageCode));
         } else {
             jdbcTemplate.update("""
-                    INSERT INTO user_profiles (
+                    INSERT INTO user_app_profiles (
                         user_id,
                         full_name,
+                        profile_photo_data_uri,
                         gender,
                         dob,
                         language_code
                     ) VALUES (
                         :userId,
                         :fullName,
+                        :profilePhotoDataUri,
                         :gender,
                         :dob,
                         :languageCode
@@ -107,6 +114,7 @@ public class ProfileService {
                     """, new MapSqlParameterSource()
                     .addValue("userId", userId)
                     .addValue("fullName", fullName)
+                    .addValue("profilePhotoDataUri", blankToNull(profilePhotoDataUri))
                     .addValue("gender", blankToNull(gender))
                     .addValue("dob", dob)
                     .addValue("languageCode", languageCode));
@@ -138,6 +146,7 @@ public class ProfileService {
                     updated_at
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
                 ORDER BY is_default DESC, updated_at DESC, id DESC
                 """, Map.of("userId", userId), (rs, rowNum) -> mapAddress(rs.getLong("id"), rs));
@@ -171,7 +180,8 @@ public class ProfileService {
                     latitude,
                     longitude,
                     is_default,
-                    is_booking_temp
+                    is_booking_temp,
+                    address_scope
                 ) VALUES (
                     :userId,
                     :label,
@@ -187,7 +197,8 @@ public class ProfileService {
                     :latitude,
                     :longitude,
                     :isDefault,
-                    0
+                    0,
+                    'CONSUMER'
                 )
                 """, new MapSqlParameterSource()
                 .addValue("userId", userId)
@@ -234,7 +245,8 @@ public class ProfileService {
                     latitude,
                     longitude,
                     is_default,
-                    is_booking_temp
+                    is_booking_temp,
+                    address_scope
                 ) VALUES (
                     :userId,
                     :label,
@@ -250,7 +262,8 @@ public class ProfileService {
                     :latitude,
                     :longitude,
                     0,
-                    1
+                    1,
+                    'CONSUMER'
                 )
                 """, new MapSqlParameterSource()
                 .addValue("userId", userId)
@@ -301,6 +314,7 @@ public class ProfileService {
                     is_default = :isDefault
                 WHERE id = :addressId
                   AND user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 """, new MapSqlParameterSource()
                 .addValue("userId", userId)
                 .addValue("addressId", addressId)
@@ -325,10 +339,12 @@ public class ProfileService {
     public void deleteAddress(Long userId, Long addressId) {
         validateUserExists(userId);
         UserAddressResponse existing = address(userId, addressId);
+        ensureAddressNotInUse(addressId);
         int updated = jdbcTemplate.update("""
                 DELETE FROM user_addresses
                 WHERE id = :addressId
                   AND user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 """, Map.of("addressId", addressId, "userId", userId));
         if (updated == 0) {
             throw new NotFoundException("Address not found");
@@ -344,12 +360,33 @@ public class ProfileService {
                             SELECT id
                             FROM user_addresses
                             WHERE user_id = :userId
+                              AND address_scope = 'CONSUMER'
                               AND is_booking_temp = 0
                             ORDER BY updated_at DESC, id DESC
                             LIMIT 1
                         ) remaining
                     )
                     """, Map.of("userId", userId));
+        }
+    }
+
+    private void ensureAddressNotInUse(Long addressId) {
+        Integer bookingCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(1)
+                FROM bookings
+                WHERE address_id = :addressId
+                """, Map.of("addressId", addressId), Integer.class);
+        if (bookingCount != null && bookingCount > 0) {
+            throw new BadRequestException("This address is linked to your booking history and cannot be deleted.");
+        }
+
+        Integer orderCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(1)
+                FROM orders
+                WHERE address_id = :addressId
+                """, Map.of("addressId", addressId), Integer.class);
+        if (orderCount != null && orderCount > 0) {
+            throw new BadRequestException("This address is linked to your order history and cannot be deleted.");
         }
     }
 
@@ -363,6 +400,7 @@ public class ProfileService {
                 SET is_default = 1
                 WHERE id = :addressId
                   AND user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 """, Map.of("addressId", addressId, "userId", userId));
         return address(userId, addressId);
     }
@@ -391,6 +429,7 @@ public class ProfileService {
                 FROM user_addresses
                 WHERE id = :addressId
                   AND user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 LIMIT 1
                 """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> mapAddress(addressId, rs));
         if (rows.isEmpty()) {
@@ -488,6 +527,7 @@ public class ProfileService {
                 SELECT COUNT(1)
                 FROM user_addresses
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
                 """, Map.of("userId", userId), Integer.class);
         return count == null ? 0 : count;
@@ -498,6 +538,7 @@ public class ProfileService {
                 UPDATE user_addresses
                 SET is_default = 0
                 WHERE user_id = :userId
+                  AND address_scope = 'CONSUMER'
                 """, Map.of("userId", userId));
     }
 
@@ -522,6 +563,20 @@ public class ProfileService {
             case "MALE", "FEMALE", "OTHER", "PREFER_NOT_TO_SAY" -> normalized;
             default -> throw new BadRequestException("Gender must be one of MALE, FEMALE, OTHER, PREFER_NOT_TO_SAY");
         };
+    }
+
+    private String normalizeProfilePhotoDataUri(String requestedPhotoDataUri, String existingPhotoDataUri) {
+        String normalized = firstNonBlank(requestedPhotoDataUri, existingPhotoDataUri, "");
+        if (normalized.isBlank()) {
+            return "";
+        }
+        if (!normalized.startsWith("data:image/") || !normalized.contains(";base64,")) {
+            throw new BadRequestException("Profile photo must be a valid image.");
+        }
+        if (normalized.length() > 2_500_000) {
+            throw new BadRequestException("Profile photo is too large. Please choose a smaller image.");
+        }
+        return normalized;
     }
 
     private String requireTrimmed(String value, String message) {
