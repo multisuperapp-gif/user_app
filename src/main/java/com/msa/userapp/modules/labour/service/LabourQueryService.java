@@ -114,6 +114,8 @@ public class LabourQueryService {
                         COALESCE(MIN(CASE WHEN lpr.pricing_model = 'FULL_DAY' THEN lpr.full_day_price END), 0.00) AS full_day_rate,
                         COUNT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN lc.id END) AS enabled_category_count,
                         MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
+                        MIN(lsa.center_latitude) AS work_latitude,
+                        MIN(lsa.center_longitude) AS work_longitude,
                         MIN(
                             CASE
                                 WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
@@ -258,6 +260,9 @@ public class LabourQueryService {
                         rs.getBigDecimal("avg_rating"),
                         rs.getLong("total_jobs_completed"),
                         rs.getBigDecimal("distance_km"),
+                        rs.getBigDecimal("radius_km"),
+                        rs.getBigDecimal("work_latitude"),
+                        rs.getBigDecimal("work_longitude"),
                         rs.getBoolean("online_status"),
                         rs.getBoolean("available_now"),
                         rs.getString("availability_status"),
@@ -360,6 +365,8 @@ public class LabourQueryService {
                     COALESCE(MIN(CASE WHEN lpr.pricing_model = 'FULL_DAY' THEN lpr.full_day_price END), 0.00) AS full_day_rate,
                     COUNT(DISTINCT CASE WHEN lpr.id IS NOT NULL THEN lc.id END) AS enabled_category_count,
                     MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
+                    MIN(lsa.center_latitude) AS work_latitude,
+                    MIN(lsa.center_longitude) AS work_longitude,
                     MIN(
                         CASE
                             WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
@@ -460,6 +467,9 @@ public class LabourQueryService {
                 rs.getBigDecimal("avg_rating"),
                 rs.getLong("total_jobs_completed"),
                 rs.getBigDecimal("distance_km"),
+                rs.getBigDecimal("radius_km"),
+                rs.getBigDecimal("work_latitude"),
+                rs.getBigDecimal("work_longitude"),
                 rs.getBoolean("online_status"),
                 rs.getBoolean("available_now"),
                 rs.getString("availability_status"),
