@@ -148,6 +148,7 @@ public class ProfileService {
                 WHERE user_id = :userId
                   AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
+                  AND is_hidden = 0
                 ORDER BY is_default DESC, updated_at DESC, id DESC
                 """, Map.of("userId", userId), (rs, rowNum) -> mapAddress(rs.getLong("id"), rs));
     }
@@ -315,6 +316,7 @@ public class ProfileService {
                 WHERE id = :addressId
                   AND user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 """, new MapSqlParameterSource()
                 .addValue("userId", userId)
                 .addValue("addressId", addressId)
@@ -339,12 +341,14 @@ public class ProfileService {
     public void deleteAddress(Long userId, Long addressId) {
         validateUserExists(userId);
         UserAddressResponse existing = address(userId, addressId);
-        ensureAddressNotInUse(addressId);
         int updated = jdbcTemplate.update("""
-                DELETE FROM user_addresses
+                UPDATE user_addresses
+                SET is_hidden = 1,
+                    is_default = 0
                 WHERE id = :addressId
                   AND user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 """, Map.of("addressId", addressId, "userId", userId));
         if (updated == 0) {
             throw new NotFoundException("Address not found");
@@ -362,31 +366,12 @@ public class ProfileService {
                             WHERE user_id = :userId
                               AND address_scope = 'CONSUMER'
                               AND is_booking_temp = 0
+                              AND is_hidden = 0
                             ORDER BY updated_at DESC, id DESC
                             LIMIT 1
                         ) remaining
                     )
                     """, Map.of("userId", userId));
-        }
-    }
-
-    private void ensureAddressNotInUse(Long addressId) {
-        Integer bookingCount = jdbcTemplate.queryForObject("""
-                SELECT COUNT(1)
-                FROM bookings
-                WHERE address_id = :addressId
-                """, Map.of("addressId", addressId), Integer.class);
-        if (bookingCount != null && bookingCount > 0) {
-            throw new BadRequestException("This address is linked to your booking history and cannot be deleted.");
-        }
-
-        Integer orderCount = jdbcTemplate.queryForObject("""
-                SELECT COUNT(1)
-                FROM orders
-                WHERE address_id = :addressId
-                """, Map.of("addressId", addressId), Integer.class);
-        if (orderCount != null && orderCount > 0) {
-            throw new BadRequestException("This address is linked to your order history and cannot be deleted.");
         }
     }
 
@@ -401,6 +386,7 @@ public class ProfileService {
                 WHERE id = :addressId
                   AND user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 """, Map.of("addressId", addressId, "userId", userId));
         return address(userId, addressId);
     }
@@ -430,6 +416,7 @@ public class ProfileService {
                 WHERE id = :addressId
                   AND user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 LIMIT 1
                 """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> mapAddress(addressId, rs));
         if (rows.isEmpty()) {
@@ -529,6 +516,7 @@ public class ProfileService {
                 WHERE user_id = :userId
                   AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
+                  AND is_hidden = 0
                 """, Map.of("userId", userId), Integer.class);
         return count == null ? 0 : count;
     }
@@ -539,6 +527,7 @@ public class ProfileService {
                 SET is_default = 0
                 WHERE user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 """, Map.of("userId", userId));
     }
 

@@ -250,6 +250,7 @@ public class LabourQueryService {
                         rs.getLong("labour_id"),
                         rs.getObject("category_id") == null ? null : rs.getLong("category_id"),
                         rs.getString("category_name"),
+                        loadCategoryPricings(rs.getLong("labour_id")),
                         rs.getString("full_name"),
                         rs.getString("photo_object_key"),
                         maskPhone(rs.getString("phone")),
@@ -275,20 +276,7 @@ public class LabourQueryService {
     }
 
     public LabourApiDtos.LabourProfileResponse profile(Long userId, Long labourId) {
-        PageResponse<LabourApiDtos.LabourProfileCardResponse> page = profiles(
-                userId,
-                null,
-                null,
-                null,
-                null,
-                null,
-                0,
-                MAX_PAGE_SIZE
-        );
-        LabourApiDtos.LabourProfileCardResponse profile = page.items().stream()
-                .filter(item -> item.labourId().equals(labourId))
-                .findFirst()
-                .orElseGet(() -> requireProfile(userId, labourId));
+        LabourApiDtos.LabourProfileCardResponse profile = requireProfile(userId, labourId);
 
         List<String> skills = jdbcTemplate.query("""
                 SELECT DISTINCT ls.skill_name
@@ -312,6 +300,7 @@ public class LabourQueryService {
                     WHERE id = :addressId
                       AND user_id = :userId
                       AND address_scope = 'CONSUMER'
+                      AND is_hidden = 0
                     LIMIT 1
                     """, Map.of("addressId", explicitAddressId, "userId", userId), (rs, rowNum) -> rs.getLong("id"));
             if (rows.isEmpty()) {
@@ -325,6 +314,7 @@ public class LabourQueryService {
                 WHERE user_id = :userId
                   AND address_scope = 'CONSUMER'
                   AND is_booking_temp = 0
+                  AND is_hidden = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> rs.getLong("id"));
@@ -457,6 +447,7 @@ public class LabourQueryService {
                 rs.getLong("labour_id"),
                 rs.getObject("category_id") == null ? null : rs.getLong("category_id"),
                 rs.getString("category_name"),
+                loadCategoryPricings(rs.getLong("labour_id")),
                 rs.getString("full_name"),
                 rs.getString("photo_object_key"),
                 maskPhone(rs.getString("phone")),
@@ -482,6 +473,27 @@ public class LabourQueryService {
         return rows.getFirst();
     }
 
+    private List<LabourApiDtos.LabourCategoryPricingResponse> loadCategoryPricings(Long labourId) {
+        return jdbcTemplate.query("""
+                SELECT
+                    lc.id AS category_id,
+                    lc.name AS category_name,
+                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' THEN lpr.half_day_price END), 0.00) AS half_day_rate,
+                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' THEN lpr.full_day_price END), 0.00) AS full_day_rate
+                FROM labour_pricing lpr
+                INNER JOIN labour_categories lc ON lc.id = lpr.category_id
+                WHERE lpr.labour_id = :labourId
+                  AND lpr.is_enabled = 1
+                GROUP BY lc.id, lc.name
+                ORDER BY lc.name ASC
+                """, Map.of("labourId", labourId), (rs, rowNum) -> new LabourApiDtos.LabourCategoryPricingResponse(
+                rs.getLong("category_id"),
+                rs.getString("category_name"),
+                rs.getBigDecimal("half_day_rate"),
+                rs.getBigDecimal("full_day_rate")
+        ));
+    }
+
     private UserLocation resolveUserLocation(Long userId, String overrideCity, Double overrideLatitude, Double overrideLongitude) {
         if (overrideLatitude != null && overrideLongitude != null) {
             return new UserLocation(
@@ -499,6 +511,7 @@ public class LabourQueryService {
                 FROM user_addresses
                 WHERE user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> new UserLocation(

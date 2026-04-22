@@ -25,6 +25,7 @@ public final class LabourApiDtos {
             Long labourId,
             Long categoryId,
             String categoryName,
+            List<LabourCategoryPricingResponse> categoryPricings,
             String fullName,
             String photoObjectKey,
             String maskedPhone,
@@ -43,6 +44,14 @@ public final class LabourApiDtos {
             String availabilityStatus,
             int activeBookingCount,
             String skillsSummary
+    ) {
+    }
+
+    public record LabourCategoryPricingResponse(
+            Long categoryId,
+            String categoryName,
+            BigDecimal halfDayRate,
+            BigDecimal fullDayRate
     ) {
     }
 

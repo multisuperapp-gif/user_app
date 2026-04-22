@@ -92,6 +92,7 @@ public class CheckoutPreviewService {
                     WHERE id = :addressId
                       AND user_id = :userId
                       AND address_scope = 'CONSUMER'
+                      AND is_hidden = 0
                     LIMIT 1
                     """, Map.of("addressId", explicitAddressId, "userId", userId), (rs, rowNum) -> rs.getLong("id"));
             if (rows.isEmpty()) {
@@ -104,6 +105,7 @@ public class CheckoutPreviewService {
                 FROM user_addresses
                 WHERE user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 ORDER BY is_default DESC, id ASC
                 LIMIT 1
                 """, Map.of("userId", userId), (rs, rowNum) -> rs.getLong("id"));
@@ -123,6 +125,7 @@ public class CheckoutPreviewService {
                 WHERE id = :addressId
                   AND user_id = :userId
                   AND address_scope = 'CONSUMER'
+                  AND is_hidden = 0
                 LIMIT 1
                 """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> new AddressRow(
                 rs.getLong("id"),
