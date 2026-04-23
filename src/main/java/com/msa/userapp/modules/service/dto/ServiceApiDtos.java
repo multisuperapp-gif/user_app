@@ -47,7 +47,8 @@ public final class ServiceApiDtos {
             boolean availableNow,
             String availabilityStatus,
             int activeBookingCount,
-            int remainingServiceMen
+            int remainingServiceMen,
+            List<String> serviceItems
     ) {
     }
 

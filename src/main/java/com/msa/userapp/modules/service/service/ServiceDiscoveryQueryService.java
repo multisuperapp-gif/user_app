@@ -6,6 +6,7 @@ import com.msa.userapp.modules.shop.common.dto.PageResponse;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +133,7 @@ public class ServiceDiscoveryQueryService {
                         COALESCE(up.full_name, CONCAT('Provider ', sp.id)) AS provider_name,
                         COALESCE(MAX(CASE WHEN psc.id = :subcategoryId THEN ps.service_name END), MIN(ps.service_name), 'Service') AS service_name,
                         COALESCE(photo.object_key, '') AS photo_object_key,
+                        COALESCE(provider_items.service_items, '') AS service_items,
                         u.phone,
                         COALESCE(MAX(ppr.visiting_charge), 0.00) AS visiting_charge,
                         sp.avg_rating,
@@ -180,6 +182,19 @@ public class ServiceDiscoveryQueryService {
                     LEFT JOIN provider_pricing_rules ppr ON ppr.provider_service_id = ps.id
                     LEFT JOIN provider_service_areas psa ON psa.provider_id = sp.id
                     LEFT JOIN (
+                        SELECT
+                            ps_items.provider_id,
+                            GROUP_CONCAT(DISTINCT psi.item_name ORDER BY psi.item_name SEPARATOR '||') AS service_items
+                        FROM provider_service_items psi
+                        INNER JOIN provider_services ps_items ON ps_items.id = psi.provider_service_id
+                        INNER JOIN provider_subcategories psc_items ON psc_items.id = ps_items.subcategory_id
+                        WHERE psi.is_active = 1
+                          AND ps_items.is_active = 1
+                          AND (:categoryId IS NULL OR psc_items.category_id = :categoryId)
+                          AND (:subcategoryId IS NULL OR ps_items.subcategory_id = :subcategoryId)
+                        GROUP BY ps_items.provider_id
+                    ) provider_items ON provider_items.provider_id = sp.id
+                    LEFT JOIN (
                         SELECT provider_entity_id, COUNT(1) AS active_booking_count
                         FROM bookings
                         WHERE provider_entity_type = 'SERVICE_PROVIDER'
@@ -227,15 +242,12 @@ public class ServiceDiscoveryQueryService {
                         sp.available_service_men,
                         sp.online_status,
                         active_bookings.active_booking_count
-                ),
-                preferred_rank AS (
-                    SELECT MIN(availability_rank) AS selected_rank
-                    FROM provider_rows
                 )
                 SELECT *
                 FROM provider_rows
-                WHERE availability_rank = (SELECT selected_rank FROM preferred_rank)
                 ORDER BY
+                    availability_rank ASC,
+                    CASE WHEN distance_km IS NULL THEN 1 ELSE 0 END ASC,
                     distance_km ASC,
                     avg_rating DESC,
                     total_completed_jobs DESC,
@@ -263,7 +275,8 @@ public class ServiceDiscoveryQueryService {
                         rs.getBoolean("available_now"),
                         rs.getString("availability_status"),
                         rs.getInt("active_booking_count"),
-                        rs.getInt("remaining_service_men")
+                        rs.getInt("remaining_service_men"),
+                        parseServiceItems(rs.getString("service_items"))
                 ));
         boolean hasMore = rows.size() > safeSize;
         List<ServiceApiDtos.ServiceProviderCardResponse> items = hasMore ? rows.subList(0, safeSize) : rows;
@@ -277,14 +290,19 @@ public class ServiceDiscoveryQueryService {
             Long subcategoryId
     ) {
         ServiceApiDtos.ServiceProviderCardResponse provider = requireProvider(userId, providerId, categoryId, subcategoryId);
-        List<String> serviceItems = jdbcTemplate.query("""
+        List<String> serviceItems = !provider.serviceItems().isEmpty()
+                ? provider.serviceItems()
+                : jdbcTemplate.query("""
                 SELECT DISTINCT psi.item_name
                 FROM provider_service_items psi
                 INNER JOIN provider_services ps ON ps.id = psi.provider_service_id
+                INNER JOIN provider_subcategories psc ON psc.id = ps.subcategory_id
                 WHERE ps.provider_id = :providerId
                   AND psi.is_active = 1
+                  AND (:categoryId IS NULL OR psc.category_id = :categoryId)
+                  AND (:subcategoryId IS NULL OR ps.subcategory_id = :subcategoryId)
                 ORDER BY psi.item_name ASC
-                """, Map.of("providerId", providerId), (rs, rowNum) -> rs.getString("item_name"));
+                """, Map.of("providerId", providerId, "categoryId", categoryId, "subcategoryId", subcategoryId), (rs, rowNum) -> rs.getString("item_name"));
         return new ServiceApiDtos.ServiceProviderProfileResponse(provider, serviceItems);
     }
 
@@ -369,6 +387,7 @@ public class ServiceDiscoveryQueryService {
                     COALESCE(up.full_name, CONCAT('Provider ', sp.id)) AS provider_name,
                     COALESCE(MAX(CASE WHEN psc.id = :subcategoryId THEN ps.service_name END), MIN(ps.service_name), 'Service') AS service_name,
                     COALESCE(photo.object_key, '') AS photo_object_key,
+                    COALESCE(provider_items.service_items, '') AS service_items,
                     u.phone,
                     COALESCE(MAX(ppr.visiting_charge), 0.00) AS visiting_charge,
                     sp.avg_rating,
@@ -413,6 +432,19 @@ public class ServiceDiscoveryQueryService {
                 LEFT JOIN provider_pricing_rules ppr ON ppr.provider_service_id = ps.id
                 LEFT JOIN provider_service_areas psa ON psa.provider_id = sp.id
                 LEFT JOIN (
+                    SELECT
+                        ps_items.provider_id,
+                        GROUP_CONCAT(DISTINCT psi.item_name ORDER BY psi.item_name SEPARATOR '||') AS service_items
+                    FROM provider_service_items psi
+                    INNER JOIN provider_services ps_items ON ps_items.id = psi.provider_service_id
+                    INNER JOIN provider_subcategories psc_items ON psc_items.id = ps_items.subcategory_id
+                    WHERE psi.is_active = 1
+                      AND ps_items.is_active = 1
+                      AND (:categoryId IS NULL OR psc_items.category_id = :categoryId)
+                      AND (:subcategoryId IS NULL OR ps_items.subcategory_id = :subcategoryId)
+                    GROUP BY ps_items.provider_id
+                ) provider_items ON provider_items.provider_id = sp.id
+                LEFT JOIN (
                     SELECT provider_entity_id, COUNT(1) AS active_booking_count
                     FROM bookings
                     WHERE provider_entity_type = 'SERVICE_PROVIDER'
@@ -453,12 +485,27 @@ public class ServiceDiscoveryQueryService {
                 rs.getBoolean("available_now"),
                 rs.getString("availability_status"),
                 rs.getInt("active_booking_count"),
-                rs.getInt("remaining_service_men")
+                rs.getInt("remaining_service_men"),
+                parseServiceItems(rs.getString("service_items"))
         ));
         if (rows.isEmpty()) {
             throw new NotFoundException("Service provider not found");
         }
         return rows.getFirst();
+    }
+
+    private List<String> parseServiceItems(String rawItems) {
+        if (!StringUtils.hasText(rawItems)) {
+            return List.of();
+        }
+        List<String> items = new ArrayList<>();
+        for (String item : rawItems.split("\\|\\|")) {
+            String normalized = item == null ? "" : item.trim();
+            if (!normalized.isEmpty()) {
+                items.add(normalized);
+            }
+        }
+        return items;
     }
 
     private UserLocation resolveUserLocation(Long userId, String overrideCity, Double overrideLatitude, Double overrideLongitude) {
