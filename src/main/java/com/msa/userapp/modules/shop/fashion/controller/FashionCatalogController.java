@@ -7,7 +7,7 @@ import com.msa.userapp.modules.shop.common.dto.ShopProductCardResponse;
 import com.msa.userapp.modules.shop.common.dto.ShopProfileResponse;
 import com.msa.userapp.modules.shop.common.dto.ShopSummaryResponse;
 import com.msa.userapp.modules.shop.common.dto.ShopTypeLandingResponse;
-import com.msa.userapp.modules.shop.common.service.ShopProfileQueryService;
+import com.msa.userapp.modules.shop.common.service.ShopCatalogGatewayService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,10 +20,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class FashionCatalogController {
     private static final String SHOP_TYPE = "fashion";
 
-    private final ShopProfileQueryService shopProfileQueryService;
+    private final ShopCatalogGatewayService shopCatalogGatewayService;
 
-    public FashionCatalogController(ShopProfileQueryService shopProfileQueryService) {
-        this.shopProfileQueryService = shopProfileQueryService;
+    public FashionCatalogController(ShopCatalogGatewayService shopCatalogGatewayService) {
+        this.shopCatalogGatewayService = shopCatalogGatewayService;
     }
 
     @GetMapping("/landing")
@@ -33,12 +33,12 @@ public class FashionCatalogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(shopProfileQueryService.landing(SHOP_TYPE, latitude, longitude, page, size));
+        return ApiResponse.ok(shopCatalogGatewayService.landing(SHOP_TYPE, latitude, longitude, page, size));
     }
 
     @GetMapping("/categories")
     public ApiResponse<List<ShopCategoryResponse>> categories(@RequestParam(required = false) Long parentCategoryId) {
-        return ApiResponse.ok(shopProfileQueryService.categories(SHOP_TYPE, parentCategoryId));
+        return ApiResponse.ok(shopCatalogGatewayService.categories(SHOP_TYPE, parentCategoryId));
     }
 
     @GetMapping("/products")
@@ -48,7 +48,7 @@ public class FashionCatalogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(shopProfileQueryService.products(SHOP_TYPE, categoryId, search, page, size));
+        return ApiResponse.ok(shopCatalogGatewayService.products(SHOP_TYPE, categoryId, search, page, size));
     }
 
     @GetMapping("/shops")
@@ -57,7 +57,7 @@ public class FashionCatalogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(shopProfileQueryService.shops(SHOP_TYPE, search, page, size));
+        return ApiResponse.ok(shopCatalogGatewayService.shops(SHOP_TYPE, search, page, size));
     }
 
     @GetMapping("/shops/{shopId}")
@@ -68,6 +68,6 @@ public class FashionCatalogController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(shopProfileQueryService.shopProfile(SHOP_TYPE, shopId, categoryId, search, page, size));
+        return ApiResponse.ok(shopCatalogGatewayService.shopProfile(SHOP_TYPE, shopId, categoryId, search, page, size));
     }
 }

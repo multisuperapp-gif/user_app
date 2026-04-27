@@ -7,6 +7,8 @@ public record ShopSummaryResponse(
         Long shopTypeId,
         String shopName,
         String shopCode,
+        String logoObjectKey,
+        String coverObjectKey,
         BigDecimal avgRating,
         long totalReviews,
         String city,

@@ -6,15 +6,13 @@ import com.msa.userapp.integration.bookingpayment.BookingPaymentRequestClient;
 import com.msa.userapp.integration.bookingpayment.dto.BookingPaymentApiResponse;
 import com.msa.userapp.integration.bookingpayment.dto.BookingPaymentRequestDtos;
 import com.msa.userapp.modules.labour.dto.LabourApiDtos;
+import com.msa.userapp.persistence.sql.repository.AppSettingRepository;
+import com.msa.userapp.persistence.sql.repository.LabourBookingSupportRepository;
+import com.msa.userapp.persistence.sql.repository.UserAddressRepository;
 import feign.FeignException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -25,16 +23,22 @@ public class LabourBookingRequestService {
     private static final BigDecimal DEFAULT_LABOUR_BOOKING_PERCENT = new BigDecimal("5.00");
     private static final int MAX_GROUP_LABOUR_COUNT = 7;
 
-    private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final LabourBookingSupportRepository labourBookingSupportRepository;
+    private final UserAddressRepository userAddressRepository;
+    private final AppSettingRepository appSettingRepository;
     private final LabourQueryService labourQueryService;
     private final BookingPaymentRequestClient bookingPaymentRequestClient;
 
     public LabourBookingRequestService(
-            NamedParameterJdbcTemplate jdbcTemplate,
+            LabourBookingSupportRepository labourBookingSupportRepository,
+            UserAddressRepository userAddressRepository,
+            AppSettingRepository appSettingRepository,
             LabourQueryService labourQueryService,
             BookingPaymentRequestClient bookingPaymentRequestClient
     ) {
-        this.jdbcTemplate = jdbcTemplate;
+        this.labourBookingSupportRepository = labourBookingSupportRepository;
+        this.userAddressRepository = userAddressRepository;
+        this.appSettingRepository = appSettingRepository;
         this.labourQueryService = labourQueryService;
         this.bookingPaymentRequestClient = bookingPaymentRequestClient;
     }
@@ -210,7 +214,7 @@ public class LabourBookingRequestService {
         BookingPaymentRequestDtos.UserBookingRequestStatusData status = requireData(call(
                 () -> bookingPaymentRequestClient.status(authorizationHeader, userId, requestId)
         ));
-        if (!canMakePayment(status) || status.bookingId() == null) {
+        if (!canMakePayment(status)) {
             throw new BadRequestException("Payment is allowed only after labour accepts the booking request");
         }
         BookingPaymentRequestDtos.BookingPaymentData payment = requireData(call(
@@ -263,199 +267,46 @@ public class LabourBookingRequestService {
     }
 
     private LabourProviderRow requireLabourProvider(Long userId, Long labourId, Long categoryId, AddressRow address) {
-        List<LabourProviderRow> rows = jdbcTemplate.query("""
-                SELECT
-                    lp.id AS labour_id,
-                    COALESCE(up.full_name, CONCAT('Labour ', lp.id)) AS full_name,
-                    COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.id END), MIN(lc.id)) AS category_id,
-                    COALESCE(MAX(CASE WHEN lc.id = :categoryId THEN lc.name END), MIN(lc.name), 'General labour') AS category_name,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HOURLY' AND lpr.is_enabled = 1 THEN lpr.hourly_price END), 0.00) AS hourly_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'HALF_DAY' AND lpr.is_enabled = 1 THEN lpr.half_day_price END), 0.00) AS half_day_rate,
-                    COALESCE(MAX(CASE WHEN lpr.pricing_model = 'FULL_DAY' AND lpr.is_enabled = 1 THEN lpr.full_day_price END), 0.00) AS full_day_rate,
-                    MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
-                    MIN(
-                        6371 * ACOS(
-                            LEAST(
-                                1,
-                                COS(RADIANS(:latitude)) * COS(RADIANS(lsa.center_latitude))
-                                * COS(RADIANS(lsa.center_longitude) - RADIANS(:longitude))
-                                + SIN(RADIANS(:latitude)) * SIN(RADIANS(lsa.center_latitude))
-                            )
-                        )
-                    ) AS distance_km
-                FROM labour_profiles lp
-                INNER JOIN users u ON u.id = lp.user_id
-                LEFT JOIN user_profiles up ON up.user_id = u.id
-                LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
-                LEFT JOIN labour_categories lc ON lc.id = ls.category_id
-                LEFT JOIN labour_pricing lpr
-                    ON lpr.labour_id = lp.id
-                   AND (:categoryId IS NULL OR lpr.category_id = :categoryId)
-                LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
-                LEFT JOIN (
-                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
-                    FROM bookings
-                    WHERE provider_entity_type = 'LABOUR'
-                      AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
-                    GROUP BY provider_entity_id
-                ) active_bookings ON active_bookings.provider_entity_id = lp.id
-                LEFT JOIN (
-                    SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
-                    FROM booking_request_candidates brc
-                    INNER JOIN booking_requests br ON br.id = brc.request_id
-                    WHERE brc.provider_entity_type = 'LABOUR'
-                      AND brc.candidate_status = 'ACCEPTED'
-                      AND br.request_status IN ('OPEN', 'ACCEPTED')
-                      AND (br.request_status <> 'OPEN' OR br.expires_at > CURRENT_TIMESTAMP)
-                    GROUP BY brc.provider_entity_id
-                ) active_requests ON active_requests.provider_entity_id = lp.id
-                WHERE lp.id = :labourId
-                  AND lp.approval_status = 'APPROVED'
-                  AND lp.online_status = 1
-                  AND COALESCE(active_bookings.active_booking_count, 0) = 0
-                  AND COALESCE(active_requests.accepted_request_count, 0) = 0
-                  AND u.id <> :userId
-                  AND (:categoryId IS NULL OR EXISTS (
-                        SELECT 1
-                        FROM labour_skills ls_filter
-                        WHERE ls_filter.labour_id = lp.id
-                          AND ls_filter.category_id = :categoryId
-                  ))
-                GROUP BY lp.id, up.full_name
-                HAVING distance_km IS NULL
-                    OR radius_km <= 0
-                    OR distance_km <= radius_km
-                LIMIT 1
-                """, new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("labourId", labourId)
-                .addValue("categoryId", categoryId)
-                .addValue("latitude", address.latitude())
-                .addValue("longitude", address.longitude()), (rs, rowNum) -> new LabourProviderRow(
-                rs.getLong("labour_id"),
-                rs.getString("full_name"),
-                rs.getObject("category_id") == null ? null : rs.getLong("category_id"),
-                rs.getString("category_name"),
-                rs.getBigDecimal("hourly_rate"),
-                rs.getBigDecimal("half_day_rate"),
-                rs.getBigDecimal("full_day_rate")
-        ));
-        if (rows.isEmpty()) {
-            DirectLabourEligibilityRow diagnostic = findDirectLabourEligibility(userId, labourId, categoryId, address);
-            if (diagnostic != null
-                    && diagnostic.radiusKm() != null
-                    && diagnostic.radiusKm().compareTo(BigDecimal.ZERO) > 0
-                    && diagnostic.distanceKm() != null
-                    && diagnostic.distanceKm().compareTo(diagnostic.radiusKm()) > 0) {
-                throw new BadRequestException("Selected address is outside this labour's working range. Please choose a nearer address or another labour.");
-            }
-            throw new NotFoundException("Labour is offline, booked, or not available");
-        }
-        return rows.getFirst();
+        return labourBookingSupportRepository
+                .findDirectLabourTarget(userId, labourId, categoryId, address.latitude(), address.longitude())
+                .map(row -> new LabourProviderRow(
+                        row.getLabourId(),
+                        row.getFullName(),
+                        row.getCategoryId(),
+                        row.getCategoryName(),
+                        row.getHourlyRate(),
+                        row.getHalfDayRate(),
+                        row.getFullDayRate()
+                ))
+                .orElseThrow(() -> new NotFoundException("Labour is offline, booked, or not available"));
     }
 
-    private DirectLabourEligibilityRow findDirectLabourEligibility(
-            Long userId,
-            Long labourId,
-            Long categoryId,
-            AddressRow address
-    ) {
-        List<DirectLabourEligibilityRow> rows = jdbcTemplate.query("""
-                SELECT
-                    MAX(COALESCE(lsa.radius_km, 0)) AS radius_km,
-                    MIN(
-                        6371 * ACOS(
-                            LEAST(
-                                1,
-                                COS(RADIANS(:latitude)) * COS(RADIANS(lsa.center_latitude))
-                                * COS(RADIANS(lsa.center_longitude) - RADIANS(:longitude))
-                                + SIN(RADIANS(:latitude)) * SIN(RADIANS(lsa.center_latitude))
-                            )
-                        )
-                    ) AS distance_km
-                FROM labour_profiles lp
-                INNER JOIN users u ON u.id = lp.user_id
-                LEFT JOIN labour_skills ls ON ls.labour_id = lp.id
-                LEFT JOIN labour_pricing lpr
-                    ON lpr.labour_id = lp.id
-                   AND (:categoryId IS NULL OR lpr.category_id = :categoryId)
-                   AND lpr.is_enabled = 1
-                LEFT JOIN labour_service_areas lsa ON lsa.labour_id = lp.id
-                LEFT JOIN (
-                    SELECT provider_entity_id, COUNT(1) AS active_booking_count
-                    FROM bookings
-                    WHERE provider_entity_type = 'LABOUR'
-                      AND booking_status IN ('ACCEPTED', 'PAYMENT_PENDING', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
-                    GROUP BY provider_entity_id
-                ) active_bookings ON active_bookings.provider_entity_id = lp.id
-                LEFT JOIN (
-                    SELECT brc.provider_entity_id, COUNT(1) AS accepted_request_count
-                    FROM booking_request_candidates brc
-                    INNER JOIN booking_requests br ON br.id = brc.request_id
-                    WHERE brc.provider_entity_type = 'LABOUR'
-                      AND brc.candidate_status = 'ACCEPTED'
-                      AND br.request_status IN ('OPEN', 'ACCEPTED')
-                      AND (br.request_status <> 'OPEN' OR br.expires_at > CURRENT_TIMESTAMP)
-                    GROUP BY brc.provider_entity_id
-                ) active_requests ON active_requests.provider_entity_id = lp.id
-                WHERE lp.id = :labourId
-                  AND lp.approval_status = 'APPROVED'
-                  AND lp.online_status = 1
-                  AND COALESCE(active_bookings.active_booking_count, 0) = 0
-                  AND COALESCE(active_requests.accepted_request_count, 0) = 0
-                  AND u.id <> :userId
-                  AND lpr.id IS NOT NULL
-                  AND (:categoryId IS NULL OR EXISTS (
-                        SELECT 1
-                        FROM labour_skills ls_filter
-                        WHERE ls_filter.labour_id = lp.id
-                          AND ls_filter.category_id = :categoryId
-                  ))
-                GROUP BY lp.id
-                LIMIT 1
-                """, new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("labourId", labourId)
-                .addValue("categoryId", categoryId)
-                .addValue("latitude", address.latitude())
-                .addValue("longitude", address.longitude()), (rs, rowNum) -> new DirectLabourEligibilityRow(
-                rs.getBigDecimal("radius_km"),
-                rs.getBigDecimal("distance_km")
-        ));
-        return rows.isEmpty() ? null : rows.getFirst();
+    private BigDecimal labourBookingChargePercent() {
+        return appSettingRepository.findBySettingKey(PLATFORM_FEE_LABOUR_SETTING_KEY)
+                .map(setting -> {
+                    try {
+                        BigDecimal value = new BigDecimal(setting.getSettingValue());
+                        if (value.compareTo(BigDecimal.ZERO) < 0) {
+                            return DEFAULT_LABOUR_BOOKING_PERCENT;
+                        }
+                        return value.setScale(2, RoundingMode.HALF_UP);
+                    } catch (NumberFormatException exception) {
+                        return DEFAULT_LABOUR_BOOKING_PERCENT;
+                    }
+                })
+                .orElse(DEFAULT_LABOUR_BOOKING_PERCENT);
     }
 
     private AddressRow requireAddress(Long addressId, Long userId) {
-        List<AddressRow> rows = jdbcTemplate.query("""
-                SELECT id, city, latitude, longitude
-                FROM user_addresses
-                WHERE id = :addressId
-                  AND user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_hidden = 0
-                LIMIT 1
-                """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> new AddressRow(
-                rs.getLong("id"),
-                rs.getString("city"),
-                rs.getBigDecimal("latitude"),
-                rs.getBigDecimal("longitude")
-        ));
-        if (rows.isEmpty()) {
-            throw new NotFoundException("Address not found");
-        }
-        return rows.getFirst();
-    }
-
-    private static String normalizeBookingPeriod(String bookingPeriod) {
-        if (!StringUtils.hasText(bookingPeriod)) {
-            throw new BadRequestException("Please select Half Day or Full Day");
-        }
-        return switch (bookingPeriod.trim().toUpperCase().replace(' ', '_')) {
-            case "HALF_DAY" -> "HALF_DAY";
-            case "FULL_DAY" -> "FULL_DAY";
-            case "HOURLY" -> "HOURLY";
-            default -> throw new BadRequestException("Unsupported booking period");
-        };
+        return userAddressRepository
+                .findByIdAndUserIdAndAddressScopeAndHiddenFalse(addressId, userId, "CONSUMER")
+                .map(address -> new AddressRow(
+                        address.getId(),
+                        address.getCity(),
+                        address.getLatitude(),
+                        address.getLongitude()
+                ))
+                .orElseThrow(() -> new NotFoundException("Address not found"));
     }
 
     private static <T> T requireData(BookingPaymentApiResponse<T> response) {
@@ -473,29 +324,6 @@ public class LabourBookingRequestService {
             throw new BadRequestException("Booking service returned no data");
         }
         return response.data();
-    }
-
-    private BigDecimal labourBookingChargePercent() {
-        try {
-            List<BigDecimal> values = jdbcTemplate.query("""
-                    SELECT setting_value
-                    FROM app_settings
-                    WHERE setting_key = :settingKey
-                    LIMIT 1
-                    """, new MapSqlParameterSource("settingKey", PLATFORM_FEE_LABOUR_SETTING_KEY), (rs, rowNum) -> {
-                try {
-                    return new BigDecimal(rs.getString("setting_value"));
-                } catch (NumberFormatException exception) {
-                    return DEFAULT_LABOUR_BOOKING_PERCENT;
-                }
-            });
-            if (values.isEmpty() || values.getFirst() == null || values.getFirst().compareTo(BigDecimal.ZERO) < 0) {
-                return DEFAULT_LABOUR_BOOKING_PERCENT;
-            }
-            return values.getFirst().setScale(2, RoundingMode.HALF_UP);
-        } catch (DataAccessException exception) {
-            return DEFAULT_LABOUR_BOOKING_PERCENT;
-        }
     }
 
     private <T> BookingPaymentApiResponse<T> call(FeignCall<T> call) {
@@ -518,17 +346,21 @@ public class LabourBookingRequestService {
         return "Booking request failed";
     }
 
+    private static String normalizeBookingPeriod(String bookingPeriod) {
+        if (!StringUtils.hasText(bookingPeriod)) {
+            throw new BadRequestException("Please select Half Day or Full Day");
+        }
+        return switch (bookingPeriod.trim().toUpperCase().replace(' ', '_')) {
+            case "HALF_DAY" -> "HALF_DAY";
+            case "FULL_DAY" -> "FULL_DAY";
+            case "HOURLY" -> "HOURLY";
+            default -> throw new BadRequestException("Unsupported booking period");
+        };
+    }
+
     @FunctionalInterface
     private interface FeignCall<T> {
         BookingPaymentApiResponse<T> execute();
-    }
-
-    private record AddressRow(
-            Long id,
-            String city,
-            BigDecimal latitude,
-            BigDecimal longitude
-    ) {
     }
 
     private record LabourProviderRow(
@@ -542,9 +374,11 @@ public class LabourBookingRequestService {
     ) {
     }
 
-    private record DirectLabourEligibilityRow(
-            BigDecimal radiusKm,
-            BigDecimal distanceKm
+    private record AddressRow(
+            Long id,
+            String city,
+            BigDecimal latitude,
+            BigDecimal longitude
     ) {
     }
 }

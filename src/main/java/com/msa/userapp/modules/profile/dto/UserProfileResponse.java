@@ -8,6 +8,7 @@ public record UserProfileResponse(
         String phone,
         String fullName,
         String profilePhotoDataUri,
+        String profilePhotoObjectKey,
         String gender,
         LocalDate dob,
         String languageCode

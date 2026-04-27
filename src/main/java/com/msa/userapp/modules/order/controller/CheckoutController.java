@@ -8,9 +8,7 @@ import com.msa.userapp.modules.order.dto.OrderDetailResponse;
 import com.msa.userapp.modules.order.dto.OrderSummaryResponse;
 import com.msa.userapp.modules.order.dto.PlaceOrderRequest;
 import com.msa.userapp.modules.order.dto.PlaceOrderResponse;
-import com.msa.userapp.modules.order.service.CheckoutPreviewService;
-import com.msa.userapp.modules.order.service.OrderQueryService;
-import com.msa.userapp.modules.order.service.OrderPlacementService;
+import com.msa.userapp.modules.order.service.ShopOrdersGatewayService;
 import com.msa.userapp.modules.order.service.UserOrderLifecycleService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -26,54 +24,52 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/orders")
 public class CheckoutController {
-    private final CheckoutPreviewService checkoutPreviewService;
-    private final OrderPlacementService orderPlacementService;
-    private final OrderQueryService orderQueryService;
     private final UserOrderLifecycleService userOrderLifecycleService;
+    private final ShopOrdersGatewayService shopOrdersGatewayService;
 
     public CheckoutController(
-            CheckoutPreviewService checkoutPreviewService,
-            OrderPlacementService orderPlacementService,
-            OrderQueryService orderQueryService,
-            UserOrderLifecycleService userOrderLifecycleService
+            UserOrderLifecycleService userOrderLifecycleService,
+            ShopOrdersGatewayService shopOrdersGatewayService
     ) {
-        this.checkoutPreviewService = checkoutPreviewService;
-        this.orderPlacementService = orderPlacementService;
-        this.orderQueryService = orderQueryService;
         this.userOrderLifecycleService = userOrderLifecycleService;
+        this.shopOrdersGatewayService = shopOrdersGatewayService;
     }
 
     @GetMapping
     public ApiResponse<List<OrderSummaryResponse>> list(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        return ApiResponse.ok(orderQueryService.list(userId, page, size));
+        return ApiResponse.ok(shopOrdersGatewayService.orders(authorizationHeader, userId));
     }
 
     @GetMapping("/{orderId}")
     public ApiResponse<OrderDetailResponse> detail(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long orderId
     ) {
-        return ApiResponse.ok(orderQueryService.detail(userId, orderId));
+        return ApiResponse.ok(shopOrdersGatewayService.orderDetail(authorizationHeader, userId, orderId));
     }
 
     @PostMapping("/checkout-preview")
     public ApiResponse<CheckoutPreviewResponse> preview(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody CheckoutPreviewRequest request
     ) {
-        return ApiResponse.ok(checkoutPreviewService.preview(userId, request));
+        return ApiResponse.ok(shopOrdersGatewayService.preview(authorizationHeader, userId, request));
     }
 
     @PostMapping("/place")
     public ApiResponse<PlaceOrderResponse> place(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody PlaceOrderRequest request
     ) {
-        return ApiResponse.success("Order created", orderPlacementService.placeOrder(userId, request));
+        return ApiResponse.success("Order created", shopOrdersGatewayService.place(authorizationHeader, userId, request));
     }
 
     @PostMapping("/{orderId}/cancel")

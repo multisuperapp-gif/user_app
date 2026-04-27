@@ -4,7 +4,7 @@ import com.msa.userapp.common.api.ApiResponse;
 import com.msa.userapp.modules.cart.dto.CartAddItemRequest;
 import com.msa.userapp.modules.cart.dto.CartResponse;
 import com.msa.userapp.modules.cart.dto.CartUpdateItemRequest;
-import com.msa.userapp.modules.cart.service.CartService;
+import com.msa.userapp.modules.order.service.ShopOrdersGatewayService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,39 +19,45 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/cart")
 public class CartController {
-    private final CartService cartService;
+    private final ShopOrdersGatewayService shopOrdersGatewayService;
 
-    public CartController(CartService cartService) {
-        this.cartService = cartService;
+    public CartController(ShopOrdersGatewayService shopOrdersGatewayService) {
+        this.shopOrdersGatewayService = shopOrdersGatewayService;
     }
 
     @GetMapping
-    public ApiResponse<CartResponse> activeCart(@RequestHeader("X-User-Id") Long userId) {
-        return ApiResponse.ok(cartService.getActiveCart(userId));
+    public ApiResponse<CartResponse> activeCart(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId
+    ) {
+        return ApiResponse.ok(shopOrdersGatewayService.cart(authorizationHeader, userId));
     }
 
     @PostMapping("/items")
     public ApiResponse<CartResponse> addItem(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody CartAddItemRequest request
     ) {
-        return ApiResponse.success("Item added to cart", cartService.addItem(userId, request));
+        return ApiResponse.success("Item added to cart", shopOrdersGatewayService.addItem(authorizationHeader, userId, request));
     }
 
     @PatchMapping("/items/{itemId}")
     public ApiResponse<CartResponse> updateItem(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long itemId,
             @Valid @RequestBody CartUpdateItemRequest request
     ) {
-        return ApiResponse.success("Cart item updated", cartService.updateItem(userId, itemId, request));
+        return ApiResponse.success("Cart item updated", shopOrdersGatewayService.updateItem(authorizationHeader, userId, itemId, request));
     }
 
     @DeleteMapping("/items/{itemId}")
     public ApiResponse<CartResponse> removeItem(
+            @RequestHeader("Authorization") String authorizationHeader,
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long itemId
     ) {
-        return ApiResponse.success("Cart item removed", cartService.removeItem(userId, itemId));
+        return ApiResponse.success("Cart item removed", shopOrdersGatewayService.removeItem(authorizationHeader, userId, itemId));
     }
 }

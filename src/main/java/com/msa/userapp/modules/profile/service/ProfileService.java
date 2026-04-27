@@ -6,443 +6,244 @@ import com.msa.userapp.modules.profile.dto.UpdateUserProfileRequest;
 import com.msa.userapp.modules.profile.dto.UpsertUserAddressRequest;
 import com.msa.userapp.modules.profile.dto.UserAddressResponse;
 import com.msa.userapp.modules.profile.dto.UserProfileResponse;
+import com.msa.userapp.modules.profile.storage.UserProfileMediaStorageService;
+import com.msa.userapp.persistence.sql.entity.UserAddressEntity;
+import com.msa.userapp.persistence.sql.entity.UserAppProfileEntity;
+import com.msa.userapp.persistence.sql.entity.UserEntity;
+import com.msa.userapp.persistence.sql.repository.ServiceCountryRepository;
+import com.msa.userapp.persistence.sql.repository.ServiceStateRepository;
+import com.msa.userapp.persistence.sql.repository.UserAddressRepository;
+import com.msa.userapp.persistence.sql.repository.UserAppProfileRepository;
+import com.msa.userapp.persistence.sql.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ProfileService {
-    private final NamedParameterJdbcTemplate jdbcTemplate;
+    private static final String CONSUMER_SCOPE = "CONSUMER";
 
-    public ProfileService(NamedParameterJdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    private final UserRepository userRepository;
+    private final UserAppProfileRepository userAppProfileRepository;
+    private final UserAddressRepository userAddressRepository;
+    private final ServiceCountryRepository serviceCountryRepository;
+    private final ServiceStateRepository serviceStateRepository;
+    private final UserProfileMediaStorageService userProfileMediaStorageService;
+
+    public ProfileService(
+            UserRepository userRepository,
+            UserAppProfileRepository userAppProfileRepository,
+            UserAddressRepository userAddressRepository,
+            ServiceCountryRepository serviceCountryRepository,
+            ServiceStateRepository serviceStateRepository,
+            UserProfileMediaStorageService userProfileMediaStorageService
+    ) {
+        this.userRepository = userRepository;
+        this.userAppProfileRepository = userAppProfileRepository;
+        this.userAddressRepository = userAddressRepository;
+        this.serviceCountryRepository = serviceCountryRepository;
+        this.serviceStateRepository = serviceStateRepository;
+        this.userProfileMediaStorageService = userProfileMediaStorageService;
     }
 
     @Transactional(readOnly = true)
     public UserProfileResponse profile(Long userId) {
-        validateUserExists(userId);
-        return jdbcTemplate.query("""
-                SELECT
-                    u.id,
-                    u.public_user_id,
-                    u.phone,
-                    uap.full_name,
-                    uap.profile_photo_data_uri,
-                    uap.gender,
-                    uap.dob,
-                    uap.language_code
-                FROM users u
-                LEFT JOIN user_app_profiles uap ON uap.user_id = u.id
-                WHERE u.id = :userId
-                LIMIT 1
-                """, Map.of("userId", userId), rs -> {
-            if (!rs.next()) {
-                throw new NotFoundException("User profile not found");
-            }
-            return new UserProfileResponse(
-                    rs.getLong("id"),
-                    rs.getString("public_user_id"),
-                    rs.getString("phone"),
-                    defaultIfBlank(rs.getString("full_name"), "MSA User"),
-                    defaultIfBlank(rs.getString("profile_photo_data_uri"), ""),
-                    defaultIfBlank(rs.getString("gender"), ""),
-                    rs.getObject("dob", LocalDate.class),
-                    defaultIfBlank(rs.getString("language_code"), "en")
-            );
-        });
+        UserEntity user = requireUser(userId);
+        UserAppProfileEntity profile = userAppProfileRepository.findById(userId).orElse(null);
+        return new UserProfileResponse(
+                user.getId(),
+                user.getPublicUserId(),
+                user.getPhone(),
+                defaultIfBlank(profile == null ? null : profile.getFullName(), "MSA User"),
+                "",
+                defaultIfBlank(profile == null ? null : profile.getProfilePhotoObjectKey(), ""),
+                defaultIfBlank(profile == null ? null : profile.getGender(), ""),
+                profile == null ? null : profile.getDob(),
+                defaultIfBlank(profile == null ? null : profile.getLanguageCode(), "en")
+        );
     }
 
     @Transactional
     public UserProfileResponse updateProfile(Long userId, UpdateUserProfileRequest request) {
-        validateUserExists(userId);
+        requireUser(userId);
         UserProfileResponse existing = profile(userId);
 
         String fullName = firstNonBlank(request.fullName(), existing.fullName(), "MSA User");
-        String profilePhotoDataUri = normalizeProfilePhotoDataUri(request.profilePhotoDataUri(), existing.profilePhotoDataUri());
         String gender = normalizeGender(request.gender(), existing.gender());
         LocalDate dob = request.dob() != null ? request.dob() : existing.dob();
         String languageCode = firstNonBlank(request.languageCode(), existing.languageCode(), "en").toLowerCase(Locale.ROOT);
 
-        Integer existingProfileCount = jdbcTemplate.queryForObject("""
-                SELECT COUNT(1)
-                FROM user_app_profiles
-                WHERE user_id = :userId
-                """, Map.of("userId", userId), Integer.class);
-
-        if (existingProfileCount != null && existingProfileCount > 0) {
-            jdbcTemplate.update("""
-                    UPDATE user_app_profiles
-                    SET full_name = :fullName,
-                        profile_photo_data_uri = :profilePhotoDataUri,
-                        gender = :gender,
-                        dob = :dob,
-                        language_code = :languageCode
-                    WHERE user_id = :userId
-                    """, new MapSqlParameterSource()
-                    .addValue("userId", userId)
-                    .addValue("fullName", fullName)
-                    .addValue("profilePhotoDataUri", blankToNull(profilePhotoDataUri))
-                    .addValue("gender", blankToNull(gender))
-                    .addValue("dob", dob)
-                    .addValue("languageCode", languageCode));
-        } else {
-            jdbcTemplate.update("""
-                    INSERT INTO user_app_profiles (
-                        user_id,
-                        full_name,
-                        profile_photo_data_uri,
-                        gender,
-                        dob,
-                        language_code
-                    ) VALUES (
-                        :userId,
-                        :fullName,
-                        :profilePhotoDataUri,
-                        :gender,
-                        :dob,
-                        :languageCode
-                    )
-                    """, new MapSqlParameterSource()
-                    .addValue("userId", userId)
-                    .addValue("fullName", fullName)
-                    .addValue("profilePhotoDataUri", blankToNull(profilePhotoDataUri))
-                    .addValue("gender", blankToNull(gender))
-                    .addValue("dob", dob)
-                    .addValue("languageCode", languageCode));
+        UserAppProfileEntity profile = userAppProfileRepository.findById(userId).orElseGet(() -> {
+            UserAppProfileEntity entity = new UserAppProfileEntity();
+            entity.setUserId(userId);
+            return entity;
+        });
+        profile.setFullName(fullName);
+        String requestedProfilePhotoDataUri = normalizeRequestedProfilePhotoDataUri(request.profilePhotoDataUri());
+        if (requestedProfilePhotoDataUri != null) {
+            String previousObjectKey = profile.getProfilePhotoObjectKey();
+            UserProfileMediaStorageService.StoredProfilePhoto storedProfilePhoto =
+                    userProfileMediaStorageService.storeProfilePhoto(requestedProfilePhotoDataUri);
+            profile.setProfilePhotoDataUri(null);
+            profile.setProfilePhotoObjectKey(storedProfilePhoto.objectKey());
+            profile.setProfilePhotoContentType(storedProfilePhoto.contentType());
+            if (previousObjectKey != null && !previousObjectKey.isBlank() && !previousObjectKey.equals(storedProfilePhoto.objectKey())) {
+                userProfileMediaStorageService.deleteProfilePhoto(previousObjectKey);
+            }
         }
+        profile.setGender(blankToNull(gender));
+        profile.setDob(dob);
+        profile.setLanguageCode(languageCode);
+        userAppProfileRepository.save(profile);
 
         return profile(userId);
     }
 
     @Transactional(readOnly = true)
     public List<UserAddressResponse> addresses(Long userId) {
-        validateUserExists(userId);
-        return jdbcTemplate.query("""
-                SELECT
-                    id,
-                    label,
-                    address_line1,
-                    address_line2,
-                    landmark,
-                    city,
-                    state_id,
-                    state,
-                    country_id,
-                    country,
-                    postal_code,
-                    latitude,
-                    longitude,
-                    is_default,
-                    created_at,
-                    updated_at
-                FROM user_addresses
-                WHERE user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_booking_temp = 0
-                  AND is_hidden = 0
-                ORDER BY is_default DESC, updated_at DESC, id DESC
-                """, Map.of("userId", userId), (rs, rowNum) -> mapAddress(rs.getLong("id"), rs));
+        requireUser(userId);
+        return userAddressRepository
+                .findByUserIdAndAddressScopeAndBookingTempFalseAndHiddenFalseOrderByDefaultAddressDescUpdatedAtDescIdDesc(
+                        userId,
+                        CONSUMER_SCOPE
+                )
+                .stream()
+                .map(this::toAddressResponse)
+                .toList();
     }
 
     @Transactional
     public UserAddressResponse createAddress(Long userId, UpsertUserAddressRequest request) {
-        validateUserExists(userId);
+        requireUser(userId);
         ValidatedAddress validated = validateAddress(request);
-        int existingCount = countAddresses(userId);
-        boolean makeDefault = existingCount == 0 || Boolean.TRUE.equals(request.isDefault());
+        boolean makeDefault = countAddresses(userId) == 0 || Boolean.TRUE.equals(request.isDefault());
 
         if (makeDefault) {
             clearDefaultAddress(userId);
         }
 
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcTemplate.update("""
-                INSERT INTO user_addresses (
-                    user_id,
-                    label,
-                    address_line1,
-                    address_line2,
-                    landmark,
-                    city,
-                    state_id,
-                    state,
-                    country_id,
-                    country,
-                    postal_code,
-                    latitude,
-                    longitude,
-                    is_default,
-                    is_booking_temp,
-                    address_scope
-                ) VALUES (
-                    :userId,
-                    :label,
-                    :addressLine1,
-                    :addressLine2,
-                    :landmark,
-                    :city,
-                    :stateId,
-                    :state,
-                    :countryId,
-                    :country,
-                    :postalCode,
-                    :latitude,
-                    :longitude,
-                    :isDefault,
-                    0,
-                    'CONSUMER'
-                )
-                """, new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("label", validated.label())
-                .addValue("addressLine1", validated.addressLine1())
-                .addValue("addressLine2", validated.addressLine2())
-                .addValue("landmark", validated.landmark())
-                .addValue("city", validated.city())
-                .addValue("stateId", validated.stateId())
-                .addValue("state", validated.state())
-                .addValue("countryId", validated.countryId())
-                .addValue("country", validated.country())
-                .addValue("postalCode", validated.postalCode())
-                .addValue("latitude", validated.latitude())
-                .addValue("longitude", validated.longitude())
-                .addValue("isDefault", makeDefault), keyHolder, new String[]{"id"});
-
-        Number key = keyHolder.getKey();
-        if (key == null) {
-            throw new BadRequestException("Address could not be created");
-        }
-        return address(userId, key.longValue());
+        UserAddressEntity address = new UserAddressEntity();
+        OffsetDateTime now = OffsetDateTime.now();
+        address.setUserId(userId);
+        address.setAddressScope(CONSUMER_SCOPE);
+        address.setBookingTemp(false);
+        address.setHidden(false);
+        address.setDefaultAddress(makeDefault);
+        address.setCreatedAt(now);
+        address.setUpdatedAt(now);
+        applyValidatedAddress(address, validated);
+        return toAddressResponse(userAddressRepository.save(address));
     }
 
     @Transactional
     public UserAddressResponse createTemporaryBookingAddress(Long userId, UpsertUserAddressRequest request) {
-        validateUserExists(userId);
+        requireUser(userId);
         ValidatedAddress validated = validateAddress(request);
 
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcTemplate.update("""
-                INSERT INTO user_addresses (
-                    user_id,
-                    label,
-                    address_line1,
-                    address_line2,
-                    landmark,
-                    city,
-                    state_id,
-                    state,
-                    country_id,
-                    country,
-                    postal_code,
-                    latitude,
-                    longitude,
-                    is_default,
-                    is_booking_temp,
-                    address_scope
-                ) VALUES (
-                    :userId,
-                    :label,
-                    :addressLine1,
-                    :addressLine2,
-                    :landmark,
-                    :city,
-                    :stateId,
-                    :state,
-                    :countryId,
-                    :country,
-                    :postalCode,
-                    :latitude,
-                    :longitude,
-                    0,
-                    1,
-                    'CONSUMER'
-                )
-                """, new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("label", validated.label())
-                .addValue("addressLine1", validated.addressLine1())
-                .addValue("addressLine2", validated.addressLine2())
-                .addValue("landmark", validated.landmark())
-                .addValue("city", validated.city())
-                .addValue("stateId", validated.stateId())
-                .addValue("state", validated.state())
-                .addValue("countryId", validated.countryId())
-                .addValue("country", validated.country())
-                .addValue("postalCode", validated.postalCode())
-                .addValue("latitude", validated.latitude())
-                .addValue("longitude", validated.longitude()), keyHolder, new String[]{"id"});
-
-        Number key = keyHolder.getKey();
-        if (key == null) {
-            throw new BadRequestException("Temporary booking address could not be created");
-        }
-        return address(userId, key.longValue());
+        UserAddressEntity address = new UserAddressEntity();
+        OffsetDateTime now = OffsetDateTime.now();
+        address.setUserId(userId);
+        address.setAddressScope(CONSUMER_SCOPE);
+        address.setBookingTemp(true);
+        address.setHidden(false);
+        address.setDefaultAddress(false);
+        address.setCreatedAt(now);
+        address.setUpdatedAt(now);
+        applyValidatedAddress(address, validated);
+        return toAddressResponse(userAddressRepository.save(address));
     }
 
     @Transactional
     public UserAddressResponse updateAddress(Long userId, Long addressId, UpsertUserAddressRequest request) {
-        validateUserExists(userId);
-        UserAddressResponse existing = address(userId, addressId);
+        requireUser(userId);
+        UserAddressEntity address = requireAddress(userId, addressId);
         ValidatedAddress validated = validateAddress(request);
 
-        if (Boolean.TRUE.equals(request.isDefault()) && !existing.isDefault()) {
+        if (Boolean.TRUE.equals(request.isDefault()) && !address.isDefaultAddress()) {
             clearDefaultAddress(userId);
         }
 
-        jdbcTemplate.update("""
-                UPDATE user_addresses
-                SET label = :label,
-                    address_line1 = :addressLine1,
-                    address_line2 = :addressLine2,
-                    landmark = :landmark,
-                    city = :city,
-                    state_id = :stateId,
-                    state = :state,
-                    country_id = :countryId,
-                    country = :country,
-                    postal_code = :postalCode,
-                    latitude = :latitude,
-                    longitude = :longitude,
-                    is_default = :isDefault
-                WHERE id = :addressId
-                  AND user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_hidden = 0
-                """, new MapSqlParameterSource()
-                .addValue("userId", userId)
-                .addValue("addressId", addressId)
-                .addValue("label", validated.label())
-                .addValue("addressLine1", validated.addressLine1())
-                .addValue("addressLine2", validated.addressLine2())
-                .addValue("landmark", validated.landmark())
-                .addValue("city", validated.city())
-                .addValue("stateId", validated.stateId())
-                .addValue("state", validated.state())
-                .addValue("countryId", validated.countryId())
-                .addValue("country", validated.country())
-                .addValue("postalCode", validated.postalCode())
-                .addValue("latitude", validated.latitude())
-                .addValue("longitude", validated.longitude())
-                .addValue("isDefault", existing.isDefault() || Boolean.TRUE.equals(request.isDefault())));
-
-        return address(userId, addressId);
+        applyValidatedAddress(address, validated);
+        address.setDefaultAddress(address.isDefaultAddress() || Boolean.TRUE.equals(request.isDefault()));
+        address.setUpdatedAt(OffsetDateTime.now());
+        return toAddressResponse(userAddressRepository.save(address));
     }
 
     @Transactional
     public void deleteAddress(Long userId, Long addressId) {
-        validateUserExists(userId);
-        UserAddressResponse existing = address(userId, addressId);
-        int updated = jdbcTemplate.update("""
-                UPDATE user_addresses
-                SET is_hidden = 1,
-                    is_default = 0
-                WHERE id = :addressId
-                  AND user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_hidden = 0
-                """, Map.of("addressId", addressId, "userId", userId));
-        if (updated == 0) {
-            throw new NotFoundException("Address not found");
-        }
+        requireUser(userId);
+        UserAddressEntity address = requireAddress(userId, addressId);
+        boolean wasDefault = address.isDefaultAddress();
 
-        if (existing.isDefault()) {
-            jdbcTemplate.update("""
-                    UPDATE user_addresses
-                    SET is_default = 1
-                    WHERE id = (
-                        SELECT id
-                        FROM (
-                            SELECT id
-                            FROM user_addresses
-                            WHERE user_id = :userId
-                              AND address_scope = 'CONSUMER'
-                              AND is_booking_temp = 0
-                              AND is_hidden = 0
-                            ORDER BY updated_at DESC, id DESC
-                            LIMIT 1
-                        ) remaining
-                    )
-                    """, Map.of("userId", userId));
+        address.setHidden(true);
+        address.setDefaultAddress(false);
+        address.setUpdatedAt(OffsetDateTime.now());
+        userAddressRepository.save(address);
+
+        if (wasDefault) {
+            userAddressRepository
+                    .findTopByUserIdAndAddressScopeAndBookingTempFalseAndHiddenFalseOrderByUpdatedAtDescIdDesc(userId, CONSUMER_SCOPE)
+                    .ifPresent(remaining -> {
+                        remaining.setDefaultAddress(true);
+                        remaining.setUpdatedAt(OffsetDateTime.now());
+                        userAddressRepository.save(remaining);
+                    });
         }
     }
 
     @Transactional
     public UserAddressResponse setDefaultAddress(Long userId, Long addressId) {
-        validateUserExists(userId);
-        address(userId, addressId);
+        requireUser(userId);
+        UserAddressEntity address = requireAddress(userId, addressId);
         clearDefaultAddress(userId);
-        jdbcTemplate.update("""
-                UPDATE user_addresses
-                SET is_default = 1
-                WHERE id = :addressId
-                  AND user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_hidden = 0
-                """, Map.of("addressId", addressId, "userId", userId));
-        return address(userId, addressId);
+        address.setDefaultAddress(true);
+        address.setUpdatedAt(OffsetDateTime.now());
+        return toAddressResponse(userAddressRepository.save(address));
     }
 
     @Transactional(readOnly = true)
     public UserAddressResponse address(Long userId, Long addressId) {
-        validateUserExists(userId);
-        List<UserAddressResponse> rows = jdbcTemplate.query("""
-                SELECT
-                    id,
-                    label,
-                    address_line1,
-                    address_line2,
-                    landmark,
-                    city,
-                    state_id,
-                    state,
-                    country_id,
-                    country,
-                    postal_code,
-                    latitude,
-                    longitude,
-                    is_default,
-                    created_at,
-                    updated_at
-                FROM user_addresses
-                WHERE id = :addressId
-                  AND user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_hidden = 0
-                LIMIT 1
-                """, Map.of("addressId", addressId, "userId", userId), (rs, rowNum) -> mapAddress(addressId, rs));
-        if (rows.isEmpty()) {
-            throw new NotFoundException("Address not found");
-        }
-        return rows.get(0);
+        requireUser(userId);
+        return toAddressResponse(requireAddress(userId, addressId));
     }
 
-    private UserAddressResponse mapAddress(Long addressId, java.sql.ResultSet rs) throws java.sql.SQLException {
+    private void applyValidatedAddress(UserAddressEntity address, ValidatedAddress validated) {
+        address.setLabel(validated.label());
+        address.setAddressLine1(validated.addressLine1());
+        address.setAddressLine2(validated.addressLine2());
+        address.setLandmark(validated.landmark());
+        address.setCity(validated.city());
+        address.setStateId(validated.stateId());
+        address.setState(validated.state());
+        address.setCountryId(validated.countryId());
+        address.setCountry(validated.country());
+        address.setPostalCode(validated.postalCode());
+        address.setLatitude(validated.latitude());
+        address.setLongitude(validated.longitude());
+    }
+
+    private UserAddressResponse toAddressResponse(UserAddressEntity address) {
         return new UserAddressResponse(
-                addressId,
-                rs.getString("label"),
-                rs.getString("address_line1"),
-                defaultIfBlank(rs.getString("address_line2"), ""),
-                defaultIfBlank(rs.getString("landmark"), ""),
-                rs.getString("city"),
-                rs.getObject("state_id") == null ? null : rs.getLong("state_id"),
-                rs.getString("state"),
-                rs.getObject("country_id") == null ? null : rs.getLong("country_id"),
-                rs.getString("country"),
-                rs.getString("postal_code"),
-                rs.getBigDecimal("latitude"),
-                rs.getBigDecimal("longitude"),
-                rs.getBoolean("is_default"),
-                rs.getObject("created_at", OffsetDateTime.class),
-                rs.getObject("updated_at", OffsetDateTime.class)
+                address.getId(),
+                address.getLabel(),
+                address.getAddressLine1(),
+                defaultIfBlank(address.getAddressLine2(), ""),
+                defaultIfBlank(address.getLandmark(), ""),
+                address.getCity(),
+                address.getStateId(),
+                address.getState(),
+                address.getCountryId(),
+                address.getCountry(),
+                address.getPostalCode(),
+                address.getLatitude(),
+                address.getLongitude(),
+                address.isDefaultAddress(),
+                address.getCreatedAt(),
+                address.getUpdatedAt()
         );
     }
 
@@ -485,61 +286,30 @@ public class ProfileService {
     }
 
     private void validateCountryState(Long countryId, Long stateId) {
-        if (countryId != null) {
-            Integer countryCount = jdbcTemplate.queryForObject("""
-                    SELECT COUNT(1)
-                    FROM service_countries
-                    WHERE id = :countryId
-                      AND is_active = 1
-                    """, Map.of("countryId", countryId), Integer.class);
-            if (countryCount == null || countryCount == 0) {
-                throw new BadRequestException("Selected country is not valid");
-            }
+        if (countryId != null && !serviceCountryRepository.existsByIdAndActiveTrue(countryId)) {
+            throw new BadRequestException("Selected country is not valid");
         }
-        if (stateId != null) {
-            Integer stateCount = jdbcTemplate.queryForObject("""
-                    SELECT COUNT(1)
-                    FROM service_states
-                    WHERE id = :stateId
-                      AND is_active = 1
-                    """, Map.of("stateId", stateId), Integer.class);
-            if (stateCount == null || stateCount == 0) {
-                throw new BadRequestException("Selected state is not valid");
-            }
+        if (stateId != null && !serviceStateRepository.existsByIdAndActiveTrue(stateId)) {
+            throw new BadRequestException("Selected state is not valid");
         }
     }
 
     private int countAddresses(Long userId) {
-        Integer count = jdbcTemplate.queryForObject("""
-                SELECT COUNT(1)
-                FROM user_addresses
-                WHERE user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_booking_temp = 0
-                  AND is_hidden = 0
-                """, Map.of("userId", userId), Integer.class);
-        return count == null ? 0 : count;
+        return (int) userAddressRepository.countByUserIdAndAddressScopeAndBookingTempFalseAndHiddenFalse(userId, CONSUMER_SCOPE);
     }
 
     private void clearDefaultAddress(Long userId) {
-        jdbcTemplate.update("""
-                UPDATE user_addresses
-                SET is_default = 0
-                WHERE user_id = :userId
-                  AND address_scope = 'CONSUMER'
-                  AND is_hidden = 0
-                """, Map.of("userId", userId));
+        userAddressRepository.clearDefaultByUserIdAndAddressScope(userId, CONSUMER_SCOPE);
     }
 
-    private void validateUserExists(Long userId) {
-        Integer exists = jdbcTemplate.queryForObject("""
-                SELECT COUNT(1)
-                FROM users
-                WHERE id = :userId
-                """, Map.of("userId", userId), Integer.class);
-        if (exists == null || exists == 0) {
-            throw new NotFoundException("User not found");
-        }
+    private UserEntity requireUser(Long userId) {
+        return userRepository.findById(userId).orElseThrow(() -> new NotFoundException("User not found"));
+    }
+
+    private UserAddressEntity requireAddress(Long userId, Long addressId) {
+        return userAddressRepository
+                .findByIdAndUserIdAndAddressScopeAndHiddenFalse(addressId, userId, CONSUMER_SCOPE)
+                .orElseThrow(() -> new NotFoundException("Address not found"));
     }
 
     private String normalizeGender(String requestedGender, String existingGender) {
@@ -554,10 +324,19 @@ public class ProfileService {
         };
     }
 
-    private String normalizeProfilePhotoDataUri(String requestedPhotoDataUri, String existingPhotoDataUri) {
-        String normalized = firstNonBlank(requestedPhotoDataUri, existingPhotoDataUri, "");
-        if (normalized.isBlank()) {
-            return "";
+    public UserProfileMediaStorageService.LoadedProfilePhoto loadProfilePhoto(String objectKey) {
+        UserAppProfileEntity profile = userAppProfileRepository.findByProfilePhotoObjectKey(objectKey)
+                .orElseThrow(() -> new NotFoundException("Profile photo not found"));
+        return userProfileMediaStorageService.loadProfilePhoto(
+                profile.getProfilePhotoObjectKey(),
+                profile.getProfilePhotoContentType()
+        );
+    }
+
+    private String normalizeRequestedProfilePhotoDataUri(String requestedPhotoDataUri) {
+        String normalized = optionalTrimmed(requestedPhotoDataUri);
+        if (normalized == null || normalized.isEmpty()) {
+            return null;
         }
         if (!normalized.startsWith("data:image/") || !normalized.contains(";base64,")) {
             throw new BadRequestException("Profile photo must be a valid image.");

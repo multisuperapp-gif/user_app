@@ -6,29 +6,35 @@ import com.msa.userapp.integration.bookingpayment.BookingPaymentClient;
 import com.msa.userapp.integration.bookingpayment.dto.BookingPaymentApiResponse;
 import com.msa.userapp.integration.bookingpayment.dto.BookingPaymentDtos;
 import com.msa.userapp.modules.payment.dto.UserPaymentDtos;
+import com.msa.userapp.modules.order.service.ShopOrdersGatewayService;
+import com.msa.userapp.persistence.sql.repository.PaymentRepository;
+import com.msa.userapp.persistence.sql.entity.PaymentEntity;
 import feign.FeignException;
-import java.util.List;
-import java.util.Map;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class UserPaymentService {
-    private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final PaymentRepository paymentRepository;
     private final BookingPaymentClient bookingPaymentClient;
+    private final ShopOrdersGatewayService shopOrdersGatewayService;
 
     public UserPaymentService(
-            NamedParameterJdbcTemplate jdbcTemplate,
-            BookingPaymentClient bookingPaymentClient
+            PaymentRepository paymentRepository,
+            BookingPaymentClient bookingPaymentClient,
+            ShopOrdersGatewayService shopOrdersGatewayService
     ) {
-        this.jdbcTemplate = jdbcTemplate;
+        this.paymentRepository = paymentRepository;
         this.bookingPaymentClient = bookingPaymentClient;
+        this.shopOrdersGatewayService = shopOrdersGatewayService;
     }
 
     @Transactional(readOnly = true)
     public UserPaymentDtos.PaymentStatusResponse status(String authorizationHeader, Long userId, String paymentCode) {
-        validatePaymentOwnership(userId, paymentCode);
+        PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
+        if (ownership.shopOrder()) {
+            return shopOrdersGatewayService.paymentStatus(authorizationHeader, userId, paymentCode);
+        }
         return mapStatus(call(() -> bookingPaymentClient.status(authorizationHeader, userId, paymentCode)));
     }
 
@@ -39,7 +45,10 @@ public class UserPaymentService {
             String paymentCode,
             UserPaymentDtos.PaymentInitiateRequest request
     ) {
-        validatePaymentOwnership(userId, paymentCode);
+        PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
+        if (ownership.shopOrder()) {
+            return shopOrdersGatewayService.initiatePayment(authorizationHeader, userId, paymentCode, request);
+        }
         BookingPaymentApiResponse<BookingPaymentDtos.PaymentInitiateResponse> response = call(
                 () -> bookingPaymentClient.initiate(
                         authorizationHeader,
@@ -70,7 +79,10 @@ public class UserPaymentService {
             String paymentCode,
             UserPaymentDtos.PaymentVerifyRequest request
     ) {
-        validatePaymentOwnership(userId, paymentCode);
+        PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
+        if (ownership.shopOrder()) {
+            return shopOrdersGatewayService.verifyPayment(authorizationHeader, userId, paymentCode, request);
+        }
         return mapStatus(call(
                 () -> bookingPaymentClient.verify(
                         authorizationHeader,
@@ -92,7 +104,10 @@ public class UserPaymentService {
             String paymentCode,
             UserPaymentDtos.PaymentFailureRequest request
     ) {
-        validatePaymentOwnership(userId, paymentCode);
+        PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
+        if (ownership.shopOrder()) {
+            return shopOrdersGatewayService.failPayment(authorizationHeader, userId, paymentCode, request);
+        }
         return mapStatus(call(
                 () -> bookingPaymentClient.failure(
                         authorizationHeader,
@@ -107,17 +122,13 @@ public class UserPaymentService {
         ));
     }
 
-    private void validatePaymentOwnership(Long userId, String paymentCode) {
-        List<Long> rows = jdbcTemplate.query("""
-                SELECT id
-                FROM payments
-                WHERE payment_code = :paymentCode
-                  AND payer_user_id = :userId
-                LIMIT 1
-                """, Map.of("paymentCode", paymentCode, "userId", userId), (rs, rowNum) -> rs.getLong("id"));
-        if (rows.isEmpty()) {
-            throw new NotFoundException("Payment not found");
-        }
+    private PaymentOwnership resolvePaymentOwnership(Long userId, String paymentCode) {
+        PaymentEntity payment = paymentRepository.findByPaymentCodeAndPayerUserId(paymentCode, userId)
+                .orElseThrow(() -> new NotFoundException("Payment not found"));
+        return new PaymentOwnership(
+                "ORDER".equalsIgnoreCase(payment.getPayableType()),
+                payment.getPayableId()
+        );
     }
 
     private UserPaymentDtos.PaymentStatusResponse mapStatus(
@@ -181,5 +192,11 @@ public class UserPaymentService {
     @FunctionalInterface
     private interface FeignCall<T> {
         BookingPaymentApiResponse<T> execute();
+    }
+
+    private record PaymentOwnership(
+            boolean shopOrder,
+            Long payableId
+    ) {
     }
 }
