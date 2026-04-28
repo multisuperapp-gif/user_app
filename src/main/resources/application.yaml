@@ -36,13 +36,13 @@ server:
 
 app:
   storage:
-    provider: ${APP_STORAGE_PROVIDER:LOCAL}
+    provider: ${APP_STORAGE_PROVIDER:S3}
     local-root: ${APP_STORAGE_LOCAL_ROOT:${java.io.tmpdir}/msa-storage}
     aws-region: ${AWS_REGION:us-east-1}
     public-media:
-      bucket: ${S3_PUBLIC_MEDIA_BUCKET:msa-public-media-dev}
+      bucket: ${S3_PUBLIC_MEDIA_BUCKET:multisuperapp-bucket}
     prefixes:
-      profile: ${S3_PROFILE_PREFIX:profile}
+      profile: ${S3_PROFILE_PREFIX:msa-public-media-dev/profiles/user}
   security:
     access-token-secret: ${ACCESS_TOKEN_SECRET:auth-verification-service-super-secret-key}
   rate-limit:
