@@ -9,6 +9,7 @@ import com.msa.userapp.persistence.sql.repository.UserRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -94,7 +95,8 @@ public class LabourQueryService {
                         userLocation.longitude(),
                         PageRequest.of(safePage, limit)
                 ).stream()
-                .map(this::toLabourCard)
+                .map(this::toLabourCardSafely)
+                .filter(Objects::nonNull)
                 .toList();
         boolean hasMore = rows.size() > safeSize;
         List<LabourApiDtos.LabourProfileCardResponse> items = hasMore ? rows.subList(0, safeSize) : rows;
@@ -187,30 +189,58 @@ public class LabourQueryService {
     }
 
     private LabourApiDtos.LabourProfileCardResponse toLabourCard(LabourDiscoveryRepository.LabourProfileRowView row) {
+        Long labourId = row.getLabourId();
+        if (labourId == null) {
+            throw new IllegalStateException("Labour row is missing labourId");
+        }
         return new LabourApiDtos.LabourProfileCardResponse(
-                row.getLabourId(),
+                labourId,
                 row.getCategoryId(),
-                row.getCategoryName(),
-                loadCategoryPricings(row.getLabourId()),
-                row.getFullName(),
-                row.getPhotoObjectKey(),
+                defaultString(row.getCategoryName(), "All labour"),
+                loadCategoryPricings(labourId),
+                defaultString(row.getFullName(), "Labour"),
+                defaultString(row.getPhotoObjectKey(), ""),
                 maskPhone(row.getPhone()),
-                row.getExperienceYears(),
-                row.getHourlyRate(),
-                row.getHalfDayRate(),
-                row.getFullDayRate(),
+                defaultInt(row.getExperienceYears()),
+                defaultMoney(row.getHourlyRate()),
+                defaultMoney(row.getHalfDayRate()),
+                defaultMoney(row.getFullDayRate()),
                 row.getAvgRating(),
-                row.getTotalCompletedJobs(),
+                defaultLong(row.getTotalCompletedJobs()),
                 row.getDistanceKm(),
-                row.getRadiusKm(),
+                defaultMoney(row.getRadiusKm()),
                 row.getWorkLatitude(),
                 row.getWorkLongitude(),
                 Boolean.TRUE.equals(row.getOnlineStatus()),
                 Boolean.TRUE.equals(row.getAvailableNow()),
-                row.getAvailabilityStatus(),
-                row.getActiveBookingCount(),
-                row.getSkillsSummary()
+                defaultString(row.getAvailabilityStatus(), "OFFLINE"),
+                defaultInt(row.getActiveBookingCount()),
+                defaultString(row.getSkillsSummary(), "")
         );
+    }
+
+    private LabourApiDtos.LabourProfileCardResponse toLabourCardSafely(LabourDiscoveryRepository.LabourProfileRowView row) {
+        try {
+            return toLabourCard(row);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static String defaultString(String value, String fallback) {
+        return value == null ? fallback : value;
+    }
+
+    private static int defaultInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private static long defaultLong(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    private static BigDecimal defaultMoney(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private static String maskPhone(String phone) {
