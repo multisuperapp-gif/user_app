@@ -206,7 +206,7 @@ public class LabourQueryService {
                 row.getWorkLatitude(),
                 row.getWorkLongitude(),
                 Boolean.TRUE.equals(row.getOnlineStatus()),
-                Boolean.TRUE.equals(row.getAvailableNow()),
+                row.getAvailableNow() != null && row.getAvailableNow() == 1,
                 row.getAvailabilityStatus(),
                 row.getActiveBookingCount(),
                 row.getSkillsSummary()

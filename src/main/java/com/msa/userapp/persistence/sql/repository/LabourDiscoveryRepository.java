@@ -33,7 +33,7 @@ public interface LabourDiscoveryRepository extends Repository<UserEntity, Long> 
         BigDecimal getWorkLatitude();
         BigDecimal getWorkLongitude();
         Boolean getOnlineStatus();
-        Boolean getAvailableNow();
+        Integer getAvailableNow();
         String getAvailabilityStatus();
         Integer getActiveBookingCount();
         String getSkillsSummary();
