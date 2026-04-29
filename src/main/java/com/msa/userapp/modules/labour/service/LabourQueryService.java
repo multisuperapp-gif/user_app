@@ -141,7 +141,7 @@ public class LabourQueryService {
                 ).stream()
                 .filter(row -> row.getLabourId().equals(labourId))
                 .findFirst()
-                .map(this::toLabourCard)
+                .map(this::toLabourCardSafely)
                 .orElse(null);
         if (profile == null) {
             throw new NotFoundException("Labour profile not found");
@@ -195,7 +195,7 @@ public class LabourQueryService {
         }
         return new LabourApiDtos.LabourProfileCardResponse(
                 labourId,
-                row.getCategoryId(),
+                defaultLongObject(row.getCategoryId()),
                 defaultString(row.getCategoryName(), "All labour"),
                 loadCategoryPricings(labourId),
                 defaultString(row.getFullName(), "Labour"),
@@ -211,8 +211,8 @@ public class LabourQueryService {
                 defaultMoney(row.getRadiusKm()),
                 row.getWorkLatitude(),
                 row.getWorkLongitude(),
-                Boolean.TRUE.equals(row.getOnlineStatus()),
-                Boolean.TRUE.equals(row.getAvailableNow()),
+                defaultBoolean(row.getOnlineStatus()),
+                defaultBoolean(row.getAvailableNow()),
                 defaultString(row.getAvailabilityStatus(), "OFFLINE"),
                 defaultInt(row.getActiveBookingCount()),
                 defaultString(row.getSkillsSummary(), "")
@@ -231,12 +231,20 @@ public class LabourQueryService {
         return value == null ? fallback : value;
     }
 
-    private static int defaultInt(Integer value) {
-        return value == null ? 0 : value;
+    private static Long defaultLongObject(Number value) {
+        return value == null ? null : value.longValue();
     }
 
-    private static long defaultLong(Long value) {
-        return value == null ? 0L : value;
+    private static int defaultInt(Number value) {
+        return value == null ? 0 : value.intValue();
+    }
+
+    private static long defaultLong(Number value) {
+        return value == null ? 0L : value.longValue();
+    }
+
+    private static boolean defaultBoolean(Number value) {
+        return value != null && value.intValue() != 0;
     }
 
     private static BigDecimal defaultMoney(BigDecimal value) {

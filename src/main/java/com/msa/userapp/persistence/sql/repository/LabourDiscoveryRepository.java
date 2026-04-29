@@ -17,25 +17,25 @@ public interface LabourDiscoveryRepository extends Repository<UserEntity, Long> 
 
     interface LabourProfileRowView {
         Long getLabourId();
-        Long getCategoryId();
+        Number getCategoryId();
         String getCategoryName();
         String getFullName();
         String getPhotoObjectKey();
         String getPhone();
-        Integer getExperienceYears();
+        Number getExperienceYears();
         BigDecimal getHourlyRate();
         BigDecimal getHalfDayRate();
         BigDecimal getFullDayRate();
         BigDecimal getAvgRating();
-        Long getTotalCompletedJobs();
+        Number getTotalCompletedJobs();
         BigDecimal getDistanceKm();
         BigDecimal getRadiusKm();
         BigDecimal getWorkLatitude();
         BigDecimal getWorkLongitude();
-        Boolean getOnlineStatus();
-        Boolean getAvailableNow();
+        Number getOnlineStatus();
+        Number getAvailableNow();
         String getAvailabilityStatus();
-        Integer getActiveBookingCount();
+        Number getActiveBookingCount();
         String getSkillsSummary();
     }
 
