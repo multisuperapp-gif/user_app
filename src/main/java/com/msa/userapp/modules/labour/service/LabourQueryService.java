@@ -9,7 +9,6 @@ import com.msa.userapp.persistence.sql.repository.UserRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -95,8 +94,7 @@ public class LabourQueryService {
                         userLocation.longitude(),
                         PageRequest.of(safePage, limit)
                 ).stream()
-                .map(this::toLabourCardSafely)
-                .filter(Objects::nonNull)
+                .map(this::toLabourCard)
                 .toList();
         boolean hasMore = rows.size() > safeSize;
         List<LabourApiDtos.LabourProfileCardResponse> items = hasMore ? rows.subList(0, safeSize) : rows;
@@ -141,7 +139,7 @@ public class LabourQueryService {
                 ).stream()
                 .filter(row -> row.getLabourId().equals(labourId))
                 .findFirst()
-                .map(this::toLabourCardSafely)
+                .map(this::toLabourCard)
                 .orElse(null);
         if (profile == null) {
             throw new NotFoundException("Labour profile not found");
@@ -189,66 +187,30 @@ public class LabourQueryService {
     }
 
     private LabourApiDtos.LabourProfileCardResponse toLabourCard(LabourDiscoveryRepository.LabourProfileRowView row) {
-        Long labourId = row.getLabourId();
-        if (labourId == null) {
-            throw new IllegalStateException("Labour row is missing labourId");
-        }
         return new LabourApiDtos.LabourProfileCardResponse(
-                labourId,
-                defaultLongObject(row.getCategoryId()),
-                defaultString(row.getCategoryName(), "All labour"),
-                loadCategoryPricings(labourId),
-                defaultString(row.getFullName(), "Labour"),
-                defaultString(row.getPhotoObjectKey(), ""),
+                row.getLabourId(),
+                row.getCategoryId(),
+                row.getCategoryName(),
+                loadCategoryPricings(row.getLabourId()),
+                row.getFullName(),
+                row.getPhotoObjectKey(),
                 maskPhone(row.getPhone()),
-                defaultInt(row.getExperienceYears()),
-                defaultMoney(row.getHourlyRate()),
-                defaultMoney(row.getHalfDayRate()),
-                defaultMoney(row.getFullDayRate()),
+                row.getExperienceYears(),
+                row.getHourlyRate(),
+                row.getHalfDayRate(),
+                row.getFullDayRate(),
                 row.getAvgRating(),
-                defaultLong(row.getTotalCompletedJobs()),
+                row.getTotalCompletedJobs(),
                 row.getDistanceKm(),
-                defaultMoney(row.getRadiusKm()),
+                row.getRadiusKm(),
                 row.getWorkLatitude(),
                 row.getWorkLongitude(),
-                defaultBoolean(row.getOnlineStatus()),
-                defaultBoolean(row.getAvailableNow()),
-                defaultString(row.getAvailabilityStatus(), "OFFLINE"),
-                defaultInt(row.getActiveBookingCount()),
-                defaultString(row.getSkillsSummary(), "")
+                Boolean.TRUE.equals(row.getOnlineStatus()),
+                Boolean.TRUE.equals(row.getAvailableNow()),
+                row.getAvailabilityStatus(),
+                row.getActiveBookingCount(),
+                row.getSkillsSummary()
         );
-    }
-
-    private LabourApiDtos.LabourProfileCardResponse toLabourCardSafely(LabourDiscoveryRepository.LabourProfileRowView row) {
-        try {
-            return toLabourCard(row);
-        } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
-    private static String defaultString(String value, String fallback) {
-        return value == null ? fallback : value;
-    }
-
-    private static Long defaultLongObject(Number value) {
-        return value == null ? null : value.longValue();
-    }
-
-    private static int defaultInt(Number value) {
-        return value == null ? 0 : value.intValue();
-    }
-
-    private static long defaultLong(Number value) {
-        return value == null ? 0L : value.longValue();
-    }
-
-    private static boolean defaultBoolean(Number value) {
-        return value != null && value.intValue() != 0;
-    }
-
-    private static BigDecimal defaultMoney(BigDecimal value) {
-        return value == null ? BigDecimal.ZERO : value;
     }
 
     private static String maskPhone(String phone) {
