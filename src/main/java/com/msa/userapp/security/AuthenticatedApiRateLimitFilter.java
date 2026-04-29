@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 2)
+@Slf4j
 public class AuthenticatedApiRateLimitFilter extends OncePerRequestFilter {
     private static final String RATE_LIMITED_CODE = "RATE_LIMITED";
 
@@ -70,6 +72,13 @@ public class AuthenticatedApiRateLimitFilter extends OncePerRequestFilter {
 
         if (window.count > rule.maxRequests()) {
             long retryAfterSeconds = Math.max(1L, (window.expiresAtMillis - now + 999L) / 1000L);
+            log.warn("Rate limit exceeded rule={} method={} uri={} retryAfterSeconds={} count={} maxRequests={}",
+                    rule.key(),
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    retryAfterSeconds,
+                    window.count,
+                    rule.maxRequests());
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
@@ -85,7 +94,9 @@ public class AuthenticatedApiRateLimitFilter extends OncePerRequestFilter {
         if (windows.size() < 512) {
             return;
         }
+        int before = windows.size();
         windows.entrySet().removeIf(entry -> entry.getValue().expiresAtMillis < now);
+        log.debug("Pruned rate limit windows before={} after={}", before, windows.size());
     }
 
     private String clientFingerprint(HttpServletRequest request) {

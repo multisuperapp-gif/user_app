@@ -11,10 +11,12 @@ import com.msa.userapp.persistence.sql.repository.UserAddressRepository;
 import feign.FeignException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class ServiceBookingRequestService {
     private final ServiceBookingSupportRepository serviceBookingSupportRepository;
     private final UserAddressRepository userAddressRepository;
@@ -78,6 +80,11 @@ public class ServiceBookingRequestService {
                         )
                 )
         ));
+        log.info("Created service booking request userId={} requestId={} providerId={} categoryId={}",
+                userId,
+                data.id(),
+                request.providerId(),
+                request.categoryId());
 
         return new ServiceApiDtos.DirectServiceBookingResponse(
                 data.id(),
@@ -134,6 +141,11 @@ public class ServiceBookingRequestService {
                         new BookingPaymentRequestDtos.InitiateBookingPaymentRequest(status.bookingId(), null)
                 )
         ));
+        log.info("Initiated service booking payment userId={} requestId={} bookingId={} paymentCode={}",
+                userId,
+                requestId,
+                payment.bookingId(),
+                payment.paymentCode());
         return new ServiceApiDtos.ServiceBookingPaymentResponse(
                 payment.bookingId(),
                 payment.bookingCode(),
@@ -182,9 +194,11 @@ public class ServiceBookingRequestService {
 
     private static <T> T requireData(BookingPaymentApiResponse<T> response) {
         if (response == null) {
+            log.warn("Booking service returned null response");
             throw new BadRequestException("Booking service returned an empty response");
         }
         if (!response.success()) {
+            log.warn("Booking service returned unsuccessful response message={}", response.message());
             throw new BadRequestException(
                     response.message() == null || response.message().isBlank()
                             ? "Booking request failed"
@@ -192,6 +206,7 @@ public class ServiceBookingRequestService {
             );
         }
         if (response.data() == null) {
+            log.warn("Booking service returned success response with no data");
             throw new BadRequestException("Booking service returned no data");
         }
         return response.data();
@@ -201,10 +216,17 @@ public class ServiceBookingRequestService {
         try {
             return call.execute();
         } catch (FeignException.NotFound exception) {
+            log.debug("Booking service returned not found status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new NotFoundException("Booking request not found");
         } catch (FeignException.BadRequest exception) {
+            log.warn("Booking service rejected request status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new BadRequestException(extractMessage(exception));
         } catch (FeignException exception) {
+            log.error("Booking service call failed status={}", exception.status(), exception);
             throw new BadRequestException("Booking backend is unavailable right now. Please try again shortly.");
         }
     }

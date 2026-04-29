@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN" monitorInterval="60">
+    <Properties>
+        <Property name="APP_NAME">${sys:spring.application.name:-user_app}</Property>
+        <Property name="LOG_PATH">${sys:LOG_PATH:-logs}</Property>
+        <Property name="LOG_LEVEL_ROOT">${sys:LOG_LEVEL_ROOT:-INFO}</Property>
+        <Property name="LOG_LEVEL_APP">${sys:LOG_LEVEL_APP:-INFO}</Property>
+        <Property name="LOG_PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n%throwable</Property>
+    </Properties>
+
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+        </Console>
+
+        <RollingFile name="ApplicationFile"
+                     fileName="${LOG_PATH}/${APP_NAME}.log"
+                     filePattern="${LOG_PATH}/archive/${APP_NAME}-%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+
+        <RollingFile name="ErrorFile"
+                     fileName="${LOG_PATH}/${APP_NAME}-error.log"
+                     filePattern="${LOG_PATH}/archive/${APP_NAME}-error-%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="${LOG_PATTERN}"/>
+            <ThresholdFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <SizeBasedTriggeringPolicy size="20 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="30"/>
+        </RollingFile>
+    </Appenders>
+
+    <Loggers>
+        <Logger name="com.msa.userapp" level="${LOG_LEVEL_APP}" additivity="false">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="ApplicationFile"/>
+            <AppenderRef ref="ErrorFile"/>
+        </Logger>
+
+        <Logger name="org.springframework" level="INFO"/>
+        <Logger name="org.hibernate.SQL" level="WARN"/>
+        <Logger name="org.hibernate.orm.jdbc.bind" level="WARN"/>
+        <Logger name="software.amazon.awssdk" level="WARN"/>
+        <Logger name="software.amazon.awssdk.request" level="WARN"/>
+        <Logger name="software.amazon.awssdk.requestId" level="WARN"/>
+        <Logger name="software.amazon.awssdk.http" level="WARN"/>
+        <Logger name="org.apache.http" level="WARN"/>
+        <Logger name="org.apache.http.headers" level="WARN"/>
+        <Logger name="org.apache.http.wire" level="WARN"/>
+
+        <Root level="${LOG_LEVEL_ROOT}">
+            <AppenderRef ref="Console"/>
+            <AppenderRef ref="ApplicationFile"/>
+            <AppenderRef ref="ErrorFile"/>
+        </Root>
+    </Loggers>
+</Configuration>

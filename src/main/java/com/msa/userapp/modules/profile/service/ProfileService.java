@@ -20,10 +20,12 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class ProfileService {
     private static final String CONSUMER_SCOPE = "CONSUMER";
     private static final int MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -96,11 +98,17 @@ public class ProfileService {
             if (previousObjectKey != null && !previousObjectKey.isBlank() && !previousObjectKey.equals(storedProfilePhoto.objectKey())) {
                 userProfileMediaStorageService.deleteProfilePhoto(previousObjectKey);
             }
+            log.info("Updated profile photo userId={} objectKey={}", userId, storedProfilePhoto.objectKey());
         }
         profile.setGender(blankToNull(gender));
         profile.setDob(dob);
         profile.setLanguageCode(languageCode);
         userAppProfileRepository.save(profile);
+        log.info("Updated user profile userId={} languageCode={} genderSet={} dobSet={}",
+                userId,
+                languageCode,
+                profile.getGender() != null,
+                profile.getDob() != null);
 
         return profile(userId);
     }
@@ -138,7 +146,12 @@ public class ProfileService {
         address.setCreatedAt(now);
         address.setUpdatedAt(now);
         applyValidatedAddress(address, validated);
-        return toAddressResponse(userAddressRepository.save(address));
+        UserAddressResponse response = toAddressResponse(userAddressRepository.save(address));
+        log.info("Created user address userId={} addressId={} default={}",
+                userId,
+                response.id(),
+                response.isDefault());
+        return response;
     }
 
     @Transactional
@@ -156,7 +169,9 @@ public class ProfileService {
         address.setCreatedAt(now);
         address.setUpdatedAt(now);
         applyValidatedAddress(address, validated);
-        return toAddressResponse(userAddressRepository.save(address));
+        UserAddressResponse response = toAddressResponse(userAddressRepository.save(address));
+        log.info("Created temporary booking address userId={} addressId={}", userId, response.id());
+        return response;
     }
 
     @Transactional
@@ -172,7 +187,12 @@ public class ProfileService {
         applyValidatedAddress(address, validated);
         address.setDefaultAddress(address.isDefaultAddress() || Boolean.TRUE.equals(request.isDefault()));
         address.setUpdatedAt(OffsetDateTime.now());
-        return toAddressResponse(userAddressRepository.save(address));
+        UserAddressResponse response = toAddressResponse(userAddressRepository.save(address));
+        log.info("Updated user address userId={} addressId={} default={}",
+                userId,
+                addressId,
+                response.isDefault());
+        return response;
     }
 
     @Transactional
@@ -195,6 +215,7 @@ public class ProfileService {
                         userAddressRepository.save(remaining);
                     });
         }
+        log.info("Deleted user address userId={} addressId={} wasDefault={}", userId, addressId, wasDefault);
     }
 
     @Transactional
@@ -204,7 +225,9 @@ public class ProfileService {
         clearDefaultAddress(userId);
         address.setDefaultAddress(true);
         address.setUpdatedAt(OffsetDateTime.now());
-        return toAddressResponse(userAddressRepository.save(address));
+        UserAddressResponse response = toAddressResponse(userAddressRepository.save(address));
+        log.info("Set default user address userId={} addressId={}", userId, addressId);
+        return response;
     }
 
     @Transactional(readOnly = true)
@@ -289,9 +312,11 @@ public class ProfileService {
 
     private void validateCountryState(Long countryId, Long stateId) {
         if (countryId != null && !serviceCountryRepository.existsByIdAndActiveTrue(countryId)) {
+            log.warn("Rejected address with invalid countryId={}", countryId);
             throw new BadRequestException("Selected country is not valid");
         }
         if (stateId != null && !serviceStateRepository.existsByIdAndActiveTrue(stateId)) {
+            log.warn("Rejected address with invalid stateId={}", stateId);
             throw new BadRequestException("Selected state is not valid");
         }
     }

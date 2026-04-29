@@ -17,8 +17,10 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
+@Slf4j
 public class BearerAuthenticationFilter extends OncePerRequestFilter {
     private final AccessTokenService accessTokenService;
     private final UserSessionRepository userSessionRepository;
@@ -58,7 +60,16 @@ public class BearerAuthenticationFilter extends OncePerRequestFilter {
                         authenticatedUser.roles().stream().map(SimpleGrantedAuthority::new).collect(Collectors.toSet())
                 );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                log.debug("Authenticated userId={} sessionId={} method={} uri={}",
+                        authenticatedUser.userId(),
+                        authenticatedUser.sessionId(),
+                        request.getMethod(),
+                        request.getRequestURI());
             } catch (SecurityAuthenticationException exception) {
+                log.warn("Rejected bearer authentication method={} uri={} reason={}",
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        exception.getMessage());
                 writeUnauthorized(response, exception.getMessage());
                 return;
             }

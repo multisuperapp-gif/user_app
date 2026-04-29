@@ -11,10 +11,12 @@ import com.msa.userapp.persistence.sql.repository.UserDeviceRepository;
 import com.msa.userapp.persistence.sql.repository.UserRepository;
 import java.time.OffsetDateTime;
 import java.util.Locale;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class PushTokenService {
     private final UserRepository userRepository;
     private final UserDeviceRepository userDeviceRepository;
@@ -35,6 +37,12 @@ public class PushTokenService {
         validateUserExists(userId);
         Long userDeviceId = resolveUserDeviceId(userId, request);
         Long tokenId = upsertPushToken(userId, userDeviceId, request);
+        log.info("Registered push token userId={} tokenId={} userDeviceId={} platform={} provider={}",
+                userId,
+                tokenId,
+                userDeviceId,
+                normalizePlatform(request.platform()),
+                normalizeProvider(request.pushProvider()));
         return fetchToken(userId, tokenId);
     }
 
@@ -47,8 +55,10 @@ public class PushTokenService {
                 OffsetDateTime.now()
         );
         if (updated == 0) {
+            log.warn("Push token deactivate requested for missing token userId={}", userId);
             throw new NotFoundException("Push token not found");
         }
+        log.info("Deactivated push token userId={}", userId);
     }
 
     private Long resolveUserDeviceId(Long userId, PushTokenRegisterRequest request) {
@@ -123,6 +133,7 @@ public class PushTokenService {
 
     private void validateUserExists(Long userId) {
         if (!userRepository.existsById(userId)) {
+            log.debug("User not found while handling push token userId={}", userId);
             throw new NotFoundException("User not found");
         }
     }

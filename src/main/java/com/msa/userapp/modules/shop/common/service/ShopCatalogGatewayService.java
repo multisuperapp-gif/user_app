@@ -20,9 +20,11 @@ import com.msa.userapp.modules.shop.common.dto.ShopTypeResponse;
 import feign.FeignException;
 import java.math.BigDecimal;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
+@Slf4j
 public class ShopCatalogGatewayService {
     private final ShopOrdersClient shopOrdersClient;
 
@@ -319,16 +321,25 @@ public class ShopCatalogGatewayService {
         try {
             return call.execute();
         } catch (FeignException.BadRequest exception) {
+            log.warn("Shop catalog service rejected request status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new BadRequestException(extractMessage(exception));
         } catch (FeignException.NotFound exception) {
+            log.debug("Shop catalog service returned not found status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new com.msa.userapp.common.exception.NotFoundException(extractMessage(exception));
         } catch (FeignException exception) {
+            log.error("Shop catalog service call failed status={}", exception.status(), exception);
             throw new BadRequestException("Shop catalog service is unavailable right now");
         }
     }
 
     private <T> T requireSuccess(ShopOrdersApiResponse<T> response) {
         if (response == null || !response.success()) {
+            log.warn("Shop catalog service returned unsuccessful response message={}",
+                    response == null ? "null response" : response.message());
             throw new BadRequestException(response == null || response.message() == null || response.message().isBlank()
                     ? "Shop catalog request failed"
                     : response.message());

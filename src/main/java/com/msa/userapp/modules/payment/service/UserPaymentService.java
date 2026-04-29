@@ -10,10 +10,12 @@ import com.msa.userapp.modules.order.service.ShopOrdersGatewayService;
 import com.msa.userapp.persistence.sql.repository.PaymentRepository;
 import com.msa.userapp.persistence.sql.entity.PaymentEntity;
 import feign.FeignException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class UserPaymentService {
     private final PaymentRepository paymentRepository;
     private final BookingPaymentClient bookingPaymentClient;
@@ -33,8 +35,16 @@ public class UserPaymentService {
     public UserPaymentDtos.PaymentStatusResponse status(String authorizationHeader, Long userId, String paymentCode) {
         PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
         if (ownership.shopOrder()) {
+            log.debug("Routing payment status to shop order service userId={} paymentCode={} payableId={}",
+                    userId,
+                    paymentCode,
+                    ownership.payableId());
             return shopOrdersGatewayService.paymentStatus(authorizationHeader, userId, paymentCode);
         }
+        log.debug("Routing payment status to booking payment service userId={} paymentCode={} payableId={}",
+                userId,
+                paymentCode,
+                ownership.payableId());
         return mapStatus(call(() -> bookingPaymentClient.status(authorizationHeader, userId, paymentCode)));
     }
 
@@ -47,8 +57,16 @@ public class UserPaymentService {
     ) {
         PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
         if (ownership.shopOrder()) {
+            log.info("Initiating shop order payment userId={} paymentCode={} payableId={}",
+                    userId,
+                    paymentCode,
+                    ownership.payableId());
             return shopOrdersGatewayService.initiatePayment(authorizationHeader, userId, paymentCode, request);
         }
+        log.info("Initiating booking payment userId={} paymentCode={} payableId={}",
+                userId,
+                paymentCode,
+                ownership.payableId());
         BookingPaymentApiResponse<BookingPaymentDtos.PaymentInitiateResponse> response = call(
                 () -> bookingPaymentClient.initiate(
                         authorizationHeader,
@@ -81,8 +99,16 @@ public class UserPaymentService {
     ) {
         PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
         if (ownership.shopOrder()) {
+            log.info("Verifying shop order payment userId={} paymentCode={} payableId={}",
+                    userId,
+                    paymentCode,
+                    ownership.payableId());
             return shopOrdersGatewayService.verifyPayment(authorizationHeader, userId, paymentCode, request);
         }
+        log.info("Verifying booking payment userId={} paymentCode={} payableId={}",
+                userId,
+                paymentCode,
+                ownership.payableId());
         return mapStatus(call(
                 () -> bookingPaymentClient.verify(
                         authorizationHeader,
@@ -106,8 +132,16 @@ public class UserPaymentService {
     ) {
         PaymentOwnership ownership = resolvePaymentOwnership(userId, paymentCode);
         if (ownership.shopOrder()) {
+            log.warn("Recording failed shop order payment userId={} paymentCode={} payableId={}",
+                    userId,
+                    paymentCode,
+                    ownership.payableId());
             return shopOrdersGatewayService.failPayment(authorizationHeader, userId, paymentCode, request);
         }
+        log.warn("Recording failed booking payment userId={} paymentCode={} payableId={}",
+                userId,
+                paymentCode,
+                ownership.payableId());
         return mapStatus(call(
                 () -> bookingPaymentClient.failure(
                         authorizationHeader,
@@ -154,9 +188,11 @@ public class UserPaymentService {
 
     private static <T> T requireData(BookingPaymentApiResponse<T> response) {
         if (response == null) {
+            log.warn("Payment service returned null response");
             throw new BadRequestException("Payment service returned an empty response");
         }
         if (!response.success()) {
+            log.warn("Payment service returned unsuccessful response message={}", response.message());
             throw new BadRequestException(
                     response.message() == null || response.message().isBlank()
                             ? "Payment request failed"
@@ -164,6 +200,7 @@ public class UserPaymentService {
             );
         }
         if (response.data() == null) {
+            log.warn("Payment service returned success response with no data");
             throw new BadRequestException("Payment service returned no data");
         }
         return response.data();
@@ -173,10 +210,17 @@ public class UserPaymentService {
         try {
             return call.execute();
         } catch (FeignException.NotFound exception) {
+            log.debug("Payment service returned not found status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new NotFoundException("Payment not found");
         } catch (FeignException.BadRequest exception) {
+            log.warn("Payment service rejected request status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new BadRequestException(extractMessage(exception));
         } catch (FeignException exception) {
+            log.error("Payment service call failed status={}", exception.status(), exception);
             throw new BadRequestException("Payment service is unavailable right now");
         }
     }

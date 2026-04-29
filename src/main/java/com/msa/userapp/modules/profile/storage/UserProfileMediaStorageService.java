@@ -10,6 +10,7 @@ import java.util.Base64;
 import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -22,6 +23,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserProfileMediaStorageService {
     private static final String STORAGE_PROVIDER_S3 = "S3";
     private static final String STORAGE_PROVIDER_LOCAL = "LOCAL";
@@ -37,6 +39,12 @@ public class UserProfileMediaStorageService {
                 ? STORAGE_PROVIDER_S3
                 : STORAGE_PROVIDER_LOCAL;
         storeBytes(storageProperties.getPublicMedia().getBucket(), objectKey, decoded.bytes(), decoded.contentType(), storageProvider);
+        log.info("Stored profile photo provider={} bucket={} objectKey={} contentType={} bytes={}",
+                storageProvider,
+                storageProperties.getPublicMedia().getBucket(),
+                objectKey,
+                decoded.contentType(),
+                decoded.bytes().length);
         return new StoredProfilePhoto(objectKey, decoded.contentType());
     }
 
@@ -54,19 +62,23 @@ public class UserProfileMediaStorageService {
                 );
                 bytes = response.asByteArray();
             } catch (Exception ex) {
+                log.warn("Profile photo not found in S3 bucket={} objectKey={}", bucketName, normalizedKey);
                 throw new NotFoundException("Profile photo not found");
             }
         } else {
             Path source = resolveLocalRoot().resolve(bucketName).resolve(normalizedKey);
             if (!Files.exists(source)) {
+                log.warn("Profile photo not found locally path={}", source);
                 throw new NotFoundException("Profile photo not found");
             }
             try {
                 bytes = Files.readAllBytes(source);
             } catch (IOException ex) {
+                log.error("Failed to read profile photo locally path={}", source, ex);
                 throw new IllegalStateException("Failed to read profile photo", ex);
             }
         }
+        log.debug("Loaded profile photo bucket={} objectKey={} bytes={}", bucketName, normalizedKey, bytes.length);
         return new LoadedProfilePhoto(bytes, defaultContentType(contentType, normalizedKey));
     }
 
@@ -83,13 +95,18 @@ public class UserProfileMediaStorageService {
                         .key(normalizedKey)
                         .build());
             } catch (Exception ignored) {
+                log.warn("Failed to delete S3 profile photo bucket={} objectKey={}", bucketName, normalizedKey, ignored);
                 return;
             }
+            log.info("Deleted S3 profile photo bucket={} objectKey={}", bucketName, normalizedKey);
             return;
         }
         try {
-            Files.deleteIfExists(resolveLocalRoot().resolve(bucketName).resolve(normalizedKey));
+            Path source = resolveLocalRoot().resolve(bucketName).resolve(normalizedKey);
+            boolean deleted = Files.deleteIfExists(source);
+            log.info("Deleted local profile photo path={} deleted={}", source, deleted);
         } catch (IOException ignored) {
+            log.warn("Failed to delete local profile photo bucket={} objectKey={}", bucketName, normalizedKey, ignored);
             return;
         }
     }
@@ -106,6 +123,7 @@ public class UserProfileMediaStorageService {
                         RequestBody.fromBytes(bytes)
                 );
             } catch (Exception ex) {
+                log.error("Failed to upload profile photo to S3 bucket={} objectKey={}", bucketName, objectKey, ex);
                 throw new BadRequestException("Profile photo upload failed: " + summarizeStorageFailure(ex));
             }
             return;
@@ -115,6 +133,7 @@ public class UserProfileMediaStorageService {
             Files.createDirectories(destination.getParent());
             Files.write(destination, bytes);
         } catch (IOException ex) {
+            log.error("Failed to store profile photo locally path={}", destination, ex);
             throw new IllegalStateException("Failed to store profile photo locally", ex);
         }
     }

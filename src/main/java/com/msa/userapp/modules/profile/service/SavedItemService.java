@@ -17,11 +17,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class SavedItemService {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 20;
@@ -117,7 +119,14 @@ public class SavedItemService {
                     entity.setTargetType(targetType);
                     entity.setTargetId(request.targetId());
                     entity.setSavedKind(savedKind);
-                    return userSavedItemRepository.save(entity);
+                    UserSavedItemEntity saved = userSavedItemRepository.save(entity);
+                    log.info("Saved item userId={} savedItemId={} targetType={} targetId={} savedKind={}",
+                            userId,
+                            saved.getId(),
+                            targetType,
+                            request.targetId(),
+                            savedKind);
+                    return saved;
                 });
 
         return list(userId, targetType, savedKind, 0, 1).stream()
@@ -138,8 +147,18 @@ public class SavedItemService {
                 normalizedSavedKind
         );
         if (deleted == 0) {
+            log.warn("Saved item removal requested for missing item userId={} targetType={} targetId={} savedKind={}",
+                    userId,
+                    normalizedTargetType,
+                    targetId,
+                    normalizedSavedKind);
             throw new NotFoundException("Saved item not found");
         }
+        log.info("Removed saved item userId={} targetType={} targetId={} savedKind={}",
+                userId,
+                normalizedTargetType,
+                targetId,
+                normalizedSavedKind);
     }
 
     private void validateTargetExists(String targetType, Long targetId) {
@@ -151,12 +170,14 @@ public class SavedItemService {
             default -> throw new BadRequestException("Unsupported targetType");
         };
         if (count == 0) {
+            log.debug("Saved item target not found targetType={} targetId={}", targetType, targetId);
             throw new NotFoundException("Target not found");
         }
     }
 
     private void validateUserExists(Long userId) {
         if (!userRepository.existsById(userId)) {
+            log.debug("User not found while handling saved item userId={}", userId);
             throw new NotFoundException("User not found");
         }
     }

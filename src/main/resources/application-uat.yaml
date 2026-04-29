@@ -10,4 +10,7 @@ spring:
 
 logging:
   level:
-    root: DEBUG
+    root: INFO
+    com.msa.userapp: INFO
+    software.amazon.awssdk: WARN
+    org.apache.http: WARN

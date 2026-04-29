@@ -23,11 +23,13 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
+@Slf4j
 public class LabourBookingService {
     private static final String PLATFORM_FEE_LABOUR_SETTING_KEY = "platform.fee.labour";
     private static final BigDecimal DEFAULT_LABOUR_BOOKING_PERCENT = new BigDecimal("5.00");
@@ -115,6 +117,11 @@ public class LabourBookingService {
 
         String paymentCode = generateCode("PAY");
         insertPayment(bookingId, userId, amount, paymentCode);
+        log.info("Created direct labour booking userId={} bookingId={} labourId={} paymentCode={}",
+                userId,
+                bookingId,
+                request.labourId(),
+                paymentCode);
 
         return new LabourApiDtos.DirectLabourBookingResponse(
                 bookingId,
@@ -153,6 +160,11 @@ public class LabourBookingService {
                 request.maxPrice(),
                 address
         );
+        log.debug("Found labour booking candidates categoryId={} bookingPeriod={} maxPrice={} count={}",
+                request.categoryId(),
+                bookingPeriod,
+                request.maxPrice(),
+                candidates.size());
 
         String requestCode = generateCode("LREQ");
         LocalDateTime scheduledStart = LocalDateTime.now().plusMinutes(30);
@@ -182,6 +194,12 @@ public class LabourBookingService {
             bookingRequestCandidate.setExpiresAt(expiresAt);
             bookingRequestCandidateRepository.save(bookingRequestCandidate);
         }
+        log.info("Created group labour booking request userId={} requestId={} categoryId={} labourCount={} candidates={}",
+                userId,
+                requestId,
+                request.categoryId(),
+                request.labourCount(),
+                candidates.size());
 
         BigDecimal bookingChargePercent = labourBookingChargePercent();
         BigDecimal estimatedLabourAmount = request.maxPrice()
@@ -209,10 +227,16 @@ public class LabourBookingService {
                     try {
                         BigDecimal value = new BigDecimal(setting.getSettingValue());
                         if (value.compareTo(BigDecimal.ZERO) < 0) {
+                            log.warn("Invalid negative labour platform fee setting key={} value={}",
+                                    PLATFORM_FEE_LABOUR_SETTING_KEY,
+                                    setting.getSettingValue());
                             return DEFAULT_LABOUR_BOOKING_PERCENT;
                         }
                         return value.setScale(2, RoundingMode.HALF_UP);
                     } catch (NumberFormatException exception) {
+                        log.warn("Invalid labour platform fee setting key={} value={}",
+                                PLATFORM_FEE_LABOUR_SETTING_KEY,
+                                setting.getSettingValue());
                         return DEFAULT_LABOUR_BOOKING_PERCENT;
                     }
                 })

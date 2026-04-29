@@ -21,9 +21,11 @@ import com.msa.userapp.modules.payment.dto.UserPaymentDtos;
 import feign.FeignException;
 import java.math.BigDecimal;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
+@Slf4j
 public class ShopOrdersGatewayService {
     private final ShopOrdersClient shopOrdersClient;
 
@@ -339,16 +341,25 @@ public class ShopOrdersGatewayService {
         try {
             return call.execute();
         } catch (FeignException.BadRequest exception) {
+            log.warn("Shop order service rejected request status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new BadRequestException(extractMessage(exception));
         } catch (FeignException.NotFound exception) {
+            log.debug("Shop order service returned not found status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new com.msa.userapp.common.exception.NotFoundException(extractMessage(exception));
         } catch (FeignException exception) {
+            log.error("Shop order service call failed status={}", exception.status(), exception);
             throw new BadRequestException("Shop order service is unavailable right now");
         }
     }
 
     private <T> T requireSuccess(ShopOrdersApiResponse<T> response) {
         if (response == null || !response.success()) {
+            log.warn("Shop order service returned unsuccessful response message={}",
+                    response == null ? "null response" : response.message());
             throw new BadRequestException(response == null || response.message() == null || response.message().isBlank()
                     ? "Shop order request failed"
                     : response.message());

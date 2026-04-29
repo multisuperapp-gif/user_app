@@ -13,11 +13,13 @@ import feign.FeignException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
+@Slf4j
 public class LabourBookingRequestService {
     private static final String PLATFORM_FEE_LABOUR_SETTING_KEY = "platform.fee.labour";
     private static final BigDecimal DEFAULT_LABOUR_BOOKING_PERCENT = new BigDecimal("5.00");
@@ -89,6 +91,11 @@ public class LabourBookingRequestService {
                         )
                 )
         ));
+        log.info("Created direct labour booking request userId={} requestId={} labourId={} categoryId={}",
+                userId,
+                data.id(),
+                request.labourId(),
+                provider.categoryId());
 
         return new LabourApiDtos.DirectLabourBookingResponse(
                 data.id(),
@@ -146,6 +153,12 @@ public class LabourBookingRequestService {
                 )
         ));
         int availableCandidates = data.candidates() == null ? 0 : data.candidates().size();
+        log.info("Created group labour booking request userId={} requestId={} categoryId={} labourCount={} candidates={}",
+                userId,
+                data.id(),
+                request.categoryId(),
+                request.labourCount(),
+                availableCandidates);
         BigDecimal estimatedLabourAmount = request.maxPrice()
                 .multiply(BigDecimal.valueOf(request.labourCount()))
                 .setScale(2, RoundingMode.HALF_UP);
@@ -231,6 +244,11 @@ public class LabourBookingRequestService {
                         )
                 )
         ));
+        log.info("Initiated labour booking payment userId={} requestId={} bookingId={} paymentCode={}",
+                userId,
+                requestId,
+                payment.bookingId(),
+                payment.paymentCode());
         return new LabourApiDtos.LabourBookingPaymentResponse(
                 payment.bookingId(),
                 payment.bookingCode(),
@@ -252,6 +270,7 @@ public class LabourBookingRequestService {
                 requestId,
                 new BookingPaymentRequestDtos.CancelBookingRequest(reason)
         ));
+        log.info("Cancelled labour booking request userId={} requestId={}", userId, requestId);
     }
 
     private boolean canMakePayment(BookingPaymentRequestDtos.UserBookingRequestStatusData data) {
@@ -287,10 +306,16 @@ public class LabourBookingRequestService {
                     try {
                         BigDecimal value = new BigDecimal(setting.getSettingValue());
                         if (value.compareTo(BigDecimal.ZERO) < 0) {
+                            log.warn("Invalid negative labour platform fee setting key={} value={}",
+                                    PLATFORM_FEE_LABOUR_SETTING_KEY,
+                                    setting.getSettingValue());
                             return DEFAULT_LABOUR_BOOKING_PERCENT;
                         }
                         return value.setScale(2, RoundingMode.HALF_UP);
                     } catch (NumberFormatException exception) {
+                        log.warn("Invalid labour platform fee setting key={} value={}",
+                                PLATFORM_FEE_LABOUR_SETTING_KEY,
+                                setting.getSettingValue());
                         return DEFAULT_LABOUR_BOOKING_PERCENT;
                     }
                 })
@@ -311,9 +336,11 @@ public class LabourBookingRequestService {
 
     private static <T> T requireData(BookingPaymentApiResponse<T> response) {
         if (response == null) {
+            log.warn("Booking service returned null response");
             throw new BadRequestException("Booking service returned an empty response");
         }
         if (!response.success()) {
+            log.warn("Booking service returned unsuccessful response message={}", response.message());
             throw new BadRequestException(
                     response.message() == null || response.message().isBlank()
                             ? "Booking request failed"
@@ -321,6 +348,7 @@ public class LabourBookingRequestService {
             );
         }
         if (response.data() == null) {
+            log.warn("Booking service returned success response with no data");
             throw new BadRequestException("Booking service returned no data");
         }
         return response.data();
@@ -330,10 +358,17 @@ public class LabourBookingRequestService {
         try {
             return call.execute();
         } catch (FeignException.NotFound exception) {
+            log.debug("Booking service returned not found status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new NotFoundException("Booking request not found");
         } catch (FeignException.BadRequest exception) {
+            log.warn("Booking service rejected request status={} message={}",
+                    exception.status(),
+                    extractMessage(exception));
             throw new BadRequestException(extractMessage(exception));
         } catch (FeignException exception) {
+            log.error("Booking service call failed status={}", exception.status(), exception);
             throw new BadRequestException("Booking backend is unavailable right now. Please try again shortly.");
         }
     }

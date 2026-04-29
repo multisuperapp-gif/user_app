@@ -15,10 +15,12 @@ import com.msa.userapp.persistence.sql.repository.ServiceBookingSupportRepositor
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 public class ServiceBookingService {
     private final ServiceBookingSupportRepository serviceBookingSupportRepository;
     private final BookingRepository bookingRepository;
@@ -80,6 +82,11 @@ public class ServiceBookingService {
 
         String paymentCode = generateCode("PAY");
         insertPayment(bookingId, userId, target.visitingCharge(), paymentCode);
+        log.info("Created direct service booking userId={} bookingId={} providerId={} paymentCode={}",
+                userId,
+                bookingId,
+                request.providerId(),
+                paymentCode);
 
         return new ServiceApiDtos.DirectServiceBookingResponse(
                 bookingId,
