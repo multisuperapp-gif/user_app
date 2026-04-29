@@ -25,6 +25,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 public class UserProfileMediaStorageService {
     private static final String STORAGE_PROVIDER_S3 = "S3";
     private static final String STORAGE_PROVIDER_LOCAL = "LOCAL";
+    private static final int MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_PROFILE_PHOTO_DATA_URI_LENGTH = 8_000_000;
 
     private final UserProfileMediaStorageProperties storageProperties;
 
@@ -104,7 +106,7 @@ public class UserProfileMediaStorageService {
                         RequestBody.fromBytes(bytes)
                 );
             } catch (Exception ex) {
-                throw new IllegalStateException("Failed to upload profile photo to S3", ex);
+                throw new BadRequestException("Profile photo upload failed: " + summarizeStorageFailure(ex));
             }
             return;
         }
@@ -122,7 +124,7 @@ public class UserProfileMediaStorageService {
         if (!normalized.startsWith("data:image/") || !normalized.contains(";base64,")) {
             throw new BadRequestException("Profile photo must be a valid image.");
         }
-        if (normalized.length() > 2_500_000) {
+        if (normalized.length() > MAX_PROFILE_PHOTO_DATA_URI_LENGTH) {
             throw new BadRequestException("Profile photo is too large. Please choose a smaller image.");
         }
         int markerIndex = normalized.indexOf(";base64,");
@@ -134,7 +136,7 @@ public class UserProfileMediaStorageService {
         } catch (IllegalArgumentException ex) {
             throw new BadRequestException("Profile photo must be a valid base64 image.");
         }
-        if (bytes.length > 3 * 1024 * 1024) {
+        if (bytes.length > MAX_PROFILE_PHOTO_BYTES) {
             throw new BadRequestException("Profile photo is too large. Please choose a smaller image.");
         }
         return new DecodedPhoto(bytes, mimeType, extensionFor(mimeType));
@@ -187,6 +189,21 @@ public class UserProfileMediaStorageService {
             return "image/gif";
         }
         return "image/jpeg";
+    }
+
+    private String summarizeStorageFailure(Exception exception) {
+        Throwable current = exception;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String message = current.getMessage() == null ? "" : current.getMessage().trim();
+        if (message.isEmpty()) {
+            message = exception.getMessage() == null ? "" : exception.getMessage().trim();
+        }
+        if (message.isEmpty()) {
+            return "Check AWS credentials, bucket permission, and region.";
+        }
+        return message;
     }
 
     private Path resolveLocalRoot() {

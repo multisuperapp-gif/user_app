@@ -26,6 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ProfileService {
     private static final String CONSUMER_SCOPE = "CONSUMER";
+    private static final int MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_PROFILE_PHOTO_DATA_URI_LENGTH = 8_000_000;
 
     private final UserRepository userRepository;
     private final UserAppProfileRepository userAppProfileRepository;
@@ -341,7 +343,7 @@ public class ProfileService {
         if (!normalized.startsWith("data:image/") || !normalized.contains(";base64,")) {
             throw new BadRequestException("Profile photo must be a valid image.");
         }
-        if (normalized.length() > 2_500_000) {
+        if (normalized.length() > MAX_PROFILE_PHOTO_DATA_URI_LENGTH) {
             throw new BadRequestException("Profile photo is too large. Please choose a smaller image.");
         }
         return normalized;
