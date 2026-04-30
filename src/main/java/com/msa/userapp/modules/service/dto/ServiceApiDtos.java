@@ -54,12 +54,29 @@ public final class ServiceApiDtos {
 
     public record ServiceProviderProfileResponse(
             ServiceProviderCardResponse provider,
-            List<String> serviceItems
+            List<String> serviceItems,
+            List<ServiceProviderServiceOptionResponse> serviceOptions
+    ) {
+    }
+
+    public record ServiceProviderServiceOptionResponse(
+            Long categoryId,
+            Long subcategoryId,
+            String categoryName,
+            String subcategoryName,
+            BigDecimal visitingCharge
     ) {
     }
 
     public record DirectServiceBookingRequest(
             Long providerId,
+            Long categoryId,
+            Long subcategoryId,
+            Long addressId
+    ) {
+    }
+
+    public record RandomServiceBookingRequest(
             Long categoryId,
             Long subcategoryId,
             Long addressId
@@ -73,7 +90,9 @@ public final class ServiceApiDtos {
             BigDecimal quotedPriceAmount,
             String currencyCode,
             String providerName,
-            String serviceName
+            String serviceName,
+            boolean broadcast,
+            Integer requestedProviderCount
     ) {
     }
 
@@ -89,7 +108,10 @@ public final class ServiceApiDtos {
             String bookingCode,
             String bookingStatus,
             String paymentStatus,
-            boolean canMakePayment
+            boolean canMakePayment,
+            Integer requestedProviderCount,
+            Integer acceptedProviderCount,
+            Integer pendingProviderCount
     ) {
     }
 

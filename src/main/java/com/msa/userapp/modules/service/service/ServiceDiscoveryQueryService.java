@@ -133,10 +133,28 @@ public class ServiceDiscoveryQueryService {
             Long subcategoryId
     ) {
         ServiceApiDtos.ServiceProviderCardResponse provider = requireProvider(userId, providerId, categoryId, subcategoryId);
+        List<ServiceApiDtos.ServiceProviderServiceOptionResponse> serviceOptions = serviceDiscoveryRepository
+                .findServiceOptionsByProviderId(providerId, categoryId)
+                .stream()
+                .map(row -> new ServiceApiDtos.ServiceProviderServiceOptionResponse(
+                        row.getCategoryId(),
+                        row.getSubcategoryId(),
+                        row.getCategoryName(),
+                        row.getSubcategoryName(),
+                        row.getVisitingCharge()
+                ))
+                .toList();
         List<String> serviceItems = !provider.serviceItems().isEmpty()
                 ? provider.serviceItems()
-                : serviceDiscoveryRepository.findServiceItemsByProviderId(providerId, categoryId, subcategoryId);
-        return new ServiceApiDtos.ServiceProviderProfileResponse(provider, serviceItems);
+                : serviceOptions.stream()
+                        .map(ServiceApiDtos.ServiceProviderServiceOptionResponse::subcategoryName)
+                        .filter(StringUtils::hasText)
+                        .distinct()
+                        .toList();
+        if (serviceItems.isEmpty()) {
+            serviceItems = serviceDiscoveryRepository.findServiceItemsByProviderId(providerId, categoryId, subcategoryId);
+        }
+        return new ServiceApiDtos.ServiceProviderProfileResponse(provider, serviceItems, serviceOptions);
     }
 
     public Long resolveDefaultAddressId(Long userId, Long explicitAddressId) {

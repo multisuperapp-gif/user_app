@@ -93,7 +93,63 @@ public class ServiceBookingRequestService {
                 target.visitingCharge(),
                 "INR",
                 target.providerName(),
-                target.serviceName()
+                target.serviceName(),
+                false,
+                1
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public ServiceApiDtos.DirectServiceBookingResponse createBroadcastBookingRequest(
+            String authorizationHeader,
+            Long userId,
+            ServiceApiDtos.RandomServiceBookingRequest request
+    ) {
+        if (request.categoryId() == null && request.subcategoryId() == null) {
+            throw new BadRequestException("Please choose a service category before random booking");
+        }
+        Long addressId = serviceDiscoveryQueryService.resolveDefaultAddressId(userId, request.addressId());
+        AddressRow address = requireAddress(addressId, userId);
+
+        BookingPaymentRequestDtos.BookingRequestData data = requireData(call(
+                () -> bookingPaymentRequestClient.create(
+                        authorizationHeader,
+                        userId,
+                        new BookingPaymentRequestDtos.CreateBookingRequest(
+                                "SERVICE",
+                                "BROADCAST",
+                                userId,
+                                addressId,
+                                LocalDateTime.now().plusMinutes(30),
+                                null,
+                                null,
+                                request.categoryId(),
+                                request.subcategoryId(),
+                                null,
+                                null,
+                                null,
+                                address.latitude(),
+                                address.longitude(),
+                                1
+                        )
+                )
+        ));
+        log.info("Created random service booking request userId={} requestId={} categoryId={} subcategoryId={}",
+                userId,
+                data.id(),
+                request.categoryId(),
+                request.subcategoryId());
+
+        return new ServiceApiDtos.DirectServiceBookingResponse(
+                data.id(),
+                data.requestCode(),
+                data.requestStatus(),
+                null,
+                "INR",
+                "Matching providers",
+                "Selected service",
+                true,
+                1
         );
     }
 
@@ -118,7 +174,10 @@ public class ServiceBookingRequestService {
                 data.bookingCode(),
                 data.bookingStatus(),
                 data.paymentStatus(),
-                canMakePayment(data)
+                canMakePayment(data),
+                data.requestedProviderCount(),
+                data.acceptedProviderCount(),
+                data.pendingProviderCount()
         );
     }
 

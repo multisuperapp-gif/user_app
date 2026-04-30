@@ -39,6 +39,14 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
         Number getRemainingServiceMen();
     }
 
+    interface ServiceProviderOptionRowView {
+        Long getCategoryId();
+        Long getSubcategoryId();
+        String getCategoryName();
+        String getSubcategoryName();
+        BigDecimal getVisitingCharge();
+    }
+
     @Query(value = """
             SELECT
                 pc.id AS categoryId,
@@ -195,6 +203,27 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
             @Param("userLatitude") BigDecimal userLatitude,
             @Param("userLongitude") BigDecimal userLongitude,
             Pageable pageable
+    );
+
+    @Query(value = """
+            SELECT
+                psc.category_id AS categoryId,
+                ps.subcategory_id AS subcategoryId,
+                pc.name AS categoryName,
+                psc.name AS subcategoryName,
+                COALESCE(ppr.visiting_charge, 0.00) AS visitingCharge
+            FROM provider_services ps
+            INNER JOIN provider_subcategories psc ON psc.id = ps.subcategory_id
+            INNER JOIN provider_categories pc ON pc.id = psc.category_id
+            LEFT JOIN provider_pricing_rules ppr ON ppr.provider_service_id = ps.id
+            WHERE ps.provider_id = :providerId
+              AND ps.is_active = 1
+              AND (:categoryId IS NULL OR psc.category_id = :categoryId)
+            ORDER BY pc.sort_order ASC, pc.name ASC, psc.name ASC
+            """, nativeQuery = true)
+    List<ServiceProviderOptionRowView> findServiceOptionsByProviderId(
+            @Param("providerId") Long providerId,
+            @Param("categoryId") Long categoryId
     );
 
     @Query(value = """

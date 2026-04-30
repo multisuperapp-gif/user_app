@@ -95,7 +95,9 @@ public class ServiceBookingService {
                 target.visitingCharge(),
                 "INR",
                 target.providerName(),
-                target.serviceName()
+                target.serviceName(),
+                false,
+                1
         );
     }
 

@@ -90,6 +90,15 @@ public class ServiceController {
         return ApiResponse.ok(serviceBookingRequestService.createDirectBookingRequest(authorizationHeader, userId, request));
     }
 
+    @PostMapping("/api/v1/service/bookings/random")
+    public ApiResponse<ServiceApiDtos.DirectServiceBookingResponse> randomBooking(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @RequestBody ServiceApiDtos.RandomServiceBookingRequest request
+    ) {
+        return ApiResponse.ok(serviceBookingRequestService.createBroadcastBookingRequest(authorizationHeader, userId, request));
+    }
+
     @GetMapping("/api/v1/service/booking-requests/{requestId}")
     public ApiResponse<ServiceApiDtos.ServiceBookingRequestStatusResponse> requestStatus(
             @RequestHeader("Authorization") String authorizationHeader,
