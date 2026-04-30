@@ -260,16 +260,44 @@ public class ServiceDiscoveryQueryService {
                 maskPhone(row.getPhone()),
                 row.getVisitingCharge(),
                 row.getAvgRating(),
-                row.getTotalCompletedJobs(),
-                row.getAvailableServiceMen(),
+                numberToLong(row.getTotalCompletedJobs()),
+                numberToInt(row.getAvailableServiceMen()),
                 row.getDistanceKm(),
-                Boolean.TRUE.equals(row.getOnlineStatus()),
-                Boolean.TRUE.equals(row.getAvailableNow()),
+                objectToBoolean(row.getOnlineStatus()),
+                objectToBoolean(row.getAvailableNow()),
                 row.getAvailabilityStatus(),
-                row.getActiveBookingCount(),
-                row.getRemainingServiceMen(),
+                numberToInt(row.getActiveBookingCount()),
+                numberToInt(row.getRemainingServiceMen()),
                 parseServiceItems(row.getServiceItems())
         );
+    }
+
+    private static int numberToInt(Number value) {
+        return value == null ? 0 : value.intValue();
+    }
+
+    private static long numberToLong(Number value) {
+        return value == null ? 0L : value.longValue();
+    }
+
+    private static boolean objectToBoolean(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        if (value instanceof Number numberValue) {
+            return numberValue.intValue() != 0;
+        }
+        String normalized = String.valueOf(value).trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        return "true".equalsIgnoreCase(normalized)
+                || "1".equals(normalized)
+                || "yes".equalsIgnoreCase(normalized)
+                || "y".equalsIgnoreCase(normalized);
     }
 
     private static String maskPhone(String phone) {

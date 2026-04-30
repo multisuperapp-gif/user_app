@@ -29,14 +29,14 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
         String getPhone();
         BigDecimal getVisitingCharge();
         BigDecimal getAvgRating();
-        Long getTotalCompletedJobs();
-        Integer getAvailableServiceMen();
+        Number getTotalCompletedJobs();
+        Number getAvailableServiceMen();
         BigDecimal getDistanceKm();
-        Boolean getOnlineStatus();
-        Boolean getAvailableNow();
+        Object getOnlineStatus();
+        Object getAvailableNow();
         String getAvailabilityStatus();
-        Integer getActiveBookingCount();
-        Integer getRemainingServiceMen();
+        Number getActiveBookingCount();
+        Number getRemainingServiceMen();
     }
 
     @Query(value = """
