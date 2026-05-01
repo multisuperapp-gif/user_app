@@ -77,7 +77,7 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
                     u.phone AS phone,
                     COALESCE(MAX(ppr.visiting_charge), 0.00) AS visitingCharge,
                     sp.avg_rating AS avgRating,
-                    sp.total_completed_jobs AS totalCompletedJobs,
+                    GREATEST(sp.total_completed_jobs, COALESCE(MAX(completed_bookings.completed_job_count), 0)) AS totalCompletedJobs,
                     sp.available_service_men AS availableServiceMen,
                     sp.online_status AS onlineStatus,
                     COALESCE(active_bookings.active_booking_count, 0) AS activeBookingCount,
@@ -141,6 +141,13 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
                       AND booking_status IN ('ACCEPTED', 'PAYMENT_COMPLETED', 'ARRIVED', 'IN_PROGRESS')
                     GROUP BY provider_entity_id
                 ) active_bookings ON active_bookings.provider_entity_id = sp.id
+                LEFT JOIN (
+                    SELECT provider_entity_id, COUNT(1) AS completed_job_count
+                    FROM bookings
+                    WHERE provider_entity_type = 'SERVICE_PROVIDER'
+                      AND booking_status = 'COMPLETED'
+                    GROUP BY provider_entity_id
+                ) completed_bookings ON completed_bookings.provider_entity_id = sp.id
                 WHERE sp.approval_status = 'APPROVED'
                   AND (:currentUserId IS NULL OR u.id <> :currentUserId)
                   AND (:currentUserPhone IS NULL OR u.phone <> :currentUserPhone)
