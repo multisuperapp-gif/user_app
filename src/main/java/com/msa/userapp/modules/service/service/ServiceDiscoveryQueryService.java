@@ -241,7 +241,7 @@ public class ServiceDiscoveryQueryService {
     private UserLocation resolveUserLocation(Long userId, String overrideCity, Double overrideLatitude, Double overrideLongitude) {
         if (overrideLatitude != null && overrideLongitude != null) {
             return new UserLocation(
-                    StringUtils.hasText(overrideCity) ? overrideCity.trim() : null,
+                    null,
                     BigDecimal.valueOf(overrideLatitude),
                     BigDecimal.valueOf(overrideLongitude)
             );

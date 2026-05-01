@@ -162,7 +162,7 @@ public class LabourQueryService {
         if (overrideLatitude != null && overrideLongitude != null) {
             return new UserLocation(
                     null,
-                    StringUtils.hasText(overrideCity) ? overrideCity.trim() : null,
+                    null,
                     BigDecimal.valueOf(overrideLatitude),
                     BigDecimal.valueOf(overrideLongitude)
             );
