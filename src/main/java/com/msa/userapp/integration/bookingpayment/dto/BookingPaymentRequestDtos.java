@@ -62,11 +62,20 @@ public final class BookingPaymentRequestDtos {
             BigDecimal distanceKm,
             Integer requestedProviderCount,
             Integer acceptedProviderCount,
+            List<AcceptedProviderData> acceptedProviders,
             Integer pendingProviderCount,
             Long bookingId,
             String bookingCode,
             String bookingStatus,
             String paymentStatus
+    ) {
+    }
+
+    public record AcceptedProviderData(
+            Long candidateId,
+            Long providerEntityId,
+            String providerName,
+            BigDecimal quotedPriceAmount
     ) {
     }
 

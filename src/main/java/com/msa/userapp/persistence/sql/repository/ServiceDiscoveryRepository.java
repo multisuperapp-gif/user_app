@@ -78,7 +78,12 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
                     COALESCE(photo.object_key, '') AS photoObjectKey,
                     COALESCE(provider_items.service_items, '') AS serviceItems,
                     u.phone AS phone,
-                    COALESCE(MAX(ppr.visiting_charge), 0.00) AS visitingCharge,
+                    COALESCE(
+                        MAX(CASE WHEN psc.id = :subcategoryId THEN ppr.visiting_charge END),
+                        MAX(CASE WHEN pc.id = :categoryId THEN ppr.visiting_charge END),
+                        MIN(ppr.visiting_charge),
+                        0.00
+                    ) AS visitingCharge,
                     sp.avg_rating AS avgRating,
                     GREATEST(sp.total_completed_jobs, COALESCE(MAX(completed_bookings.completed_job_count), 0)) AS totalCompletedJobs,
                     sp.available_service_men AS availableServiceMen,

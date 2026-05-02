@@ -13,6 +13,7 @@ import feign.FeignException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -209,6 +210,16 @@ public class LabourBookingRequestService {
                 data.distanceKm(),
                 data.requestedProviderCount() == null ? 1 : data.requestedProviderCount(),
                 data.acceptedProviderCount() == null ? 0 : data.acceptedProviderCount(),
+                data.acceptedProviders() == null
+                        ? List.of()
+                        : data.acceptedProviders().stream()
+                                .map(provider -> new LabourApiDtos.AcceptedProviderResponse(
+                                        provider.candidateId(),
+                                        provider.providerEntityId(),
+                                        provider.providerName(),
+                                        provider.quotedPriceAmount()
+                                ))
+                                .toList(),
                 data.pendingProviderCount() == null ? 0 : data.pendingProviderCount(),
                 data.bookingId(),
                 data.bookingCode(),

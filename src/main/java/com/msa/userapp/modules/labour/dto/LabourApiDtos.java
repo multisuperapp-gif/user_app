@@ -103,12 +103,21 @@ public final class LabourApiDtos {
             BigDecimal distanceKm,
             int requestedProviderCount,
             int acceptedProviderCount,
+            List<AcceptedProviderResponse> acceptedProviders,
             int pendingProviderCount,
             Long bookingId,
             String bookingCode,
             String bookingStatus,
             String paymentStatus,
             boolean canMakePayment
+    ) {
+    }
+
+    public record AcceptedProviderResponse(
+            Long candidateId,
+            Long providerEntityId,
+            String providerName,
+            BigDecimal quotedPriceAmount
     ) {
     }
 

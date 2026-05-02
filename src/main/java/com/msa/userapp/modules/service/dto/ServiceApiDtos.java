@@ -113,7 +113,16 @@ public final class ServiceApiDtos {
             boolean canMakePayment,
             Integer requestedProviderCount,
             Integer acceptedProviderCount,
+            List<AcceptedProviderResponse> acceptedProviders,
             Integer pendingProviderCount
+    ) {
+    }
+
+    public record AcceptedProviderResponse(
+            Long candidateId,
+            Long providerEntityId,
+            String providerName,
+            BigDecimal quotedPriceAmount
     ) {
     }
 

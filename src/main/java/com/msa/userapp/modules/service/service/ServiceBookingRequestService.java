@@ -11,6 +11,7 @@ import com.msa.userapp.persistence.sql.repository.UserAddressRepository;
 import feign.FeignException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -177,6 +178,16 @@ public class ServiceBookingRequestService {
                 canMakePayment(data),
                 data.requestedProviderCount(),
                 data.acceptedProviderCount(),
+                data.acceptedProviders() == null
+                        ? List.of()
+                        : data.acceptedProviders().stream()
+                                .map(provider -> new ServiceApiDtos.AcceptedProviderResponse(
+                                        provider.candidateId(),
+                                        provider.providerEntityId(),
+                                        provider.providerName(),
+                                        provider.quotedPriceAmount()
+                                ))
+                                .toList(),
                 data.pendingProviderCount()
         );
     }
