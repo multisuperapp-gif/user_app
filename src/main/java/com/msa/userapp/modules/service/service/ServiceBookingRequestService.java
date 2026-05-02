@@ -214,6 +214,21 @@ public class ServiceBookingRequestService {
         );
     }
 
+    public void cancelRequest(
+            String authorizationHeader,
+            Long userId,
+            Long requestId,
+            String reason
+    ) {
+        call(() -> bookingPaymentRequestClient.cancel(
+                authorizationHeader,
+                userId,
+                requestId,
+                new BookingPaymentRequestDtos.CancelBookingRequest(reason)
+        ));
+        log.info("Cancelled service booking request userId={} requestId={}", userId, requestId);
+    }
+
     private boolean canMakePayment(BookingPaymentRequestDtos.UserBookingRequestStatusData data) {
         return data.bookingId() != null
                 && "PAYMENT_PENDING".equalsIgnoreCase(data.bookingStatus())

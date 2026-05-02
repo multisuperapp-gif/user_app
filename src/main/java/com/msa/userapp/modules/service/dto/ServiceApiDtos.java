@@ -43,6 +43,8 @@ public final class ServiceApiDtos {
             long completedJobs,
             int availableServiceMen,
             BigDecimal distanceKm,
+            BigDecimal latitude,
+            BigDecimal longitude,
             boolean onlineStatus,
             boolean availableNow,
             String availabilityStatus,
@@ -112,6 +114,11 @@ public final class ServiceApiDtos {
             Integer requestedProviderCount,
             Integer acceptedProviderCount,
             Integer pendingProviderCount
+    ) {
+    }
+
+    public record CancelServiceBookingRequest(
+            String reason
     ) {
     }
 

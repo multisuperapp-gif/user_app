@@ -281,6 +281,8 @@ public class ServiceDiscoveryQueryService {
                 numberToLong(row.getTotalCompletedJobs()),
                 numberToInt(row.getAvailableServiceMen()),
                 row.getDistanceKm(),
+                row.getLatitude(),
+                row.getLongitude(),
                 objectToBoolean(row.getOnlineStatus()),
                 objectToBoolean(row.getAvailableNow()),
                 row.getAvailabilityStatus(),

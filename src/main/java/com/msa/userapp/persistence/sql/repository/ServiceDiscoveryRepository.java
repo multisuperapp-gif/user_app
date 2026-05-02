@@ -32,6 +32,9 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
         Number getTotalCompletedJobs();
         Number getAvailableServiceMen();
         BigDecimal getDistanceKm();
+        BigDecimal getLatitude();
+        BigDecimal getLongitude();
+        BigDecimal getRadiusKm();
         Object getOnlineStatus();
         Object getAvailableNow();
         String getAvailabilityStatus();
@@ -82,6 +85,9 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
                     sp.online_status AS onlineStatus,
                     COALESCE(active_bookings.active_booking_count, 0) AS activeBookingCount,
                     GREATEST(COALESCE(sp.available_service_men, 0) - COALESCE(active_bookings.active_booking_count, 0), 0) AS remainingServiceMen,
+                    MAX(COALESCE(psa.radius_km, 0)) AS radiusKm,
+                    MIN(psa.center_latitude) AS latitude,
+                    MIN(psa.center_longitude) AS longitude,
                     MIN(
                         CASE
                             WHEN :userLatitude IS NOT NULL AND :userLongitude IS NOT NULL THEN
@@ -189,6 +195,13 @@ public interface ServiceDiscoveryRepository extends Repository<UserEntity, Long>
                     sp.available_service_men,
                     sp.online_status,
                     active_bookings.active_booking_count
+                HAVING (
+                    :userLatitude IS NULL
+                    OR :userLongitude IS NULL
+                    OR distanceKm IS NULL
+                    OR radiusKm <= 0
+                    OR distanceKm <= radiusKm
+                )
             )
             SELECT *
             FROM provider_rows

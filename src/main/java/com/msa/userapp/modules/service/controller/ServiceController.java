@@ -108,6 +108,17 @@ public class ServiceController {
         return ApiResponse.ok(serviceBookingRequestService.fetchRequestStatus(authorizationHeader, userId, requestId));
     }
 
+    @PostMapping("/api/v1/service/booking-requests/{requestId}/cancel")
+    public ApiResponse<Void> cancelRequest(
+            @RequestHeader("Authorization") String authorizationHeader,
+            @RequestHeader("X-User-Id") Long userId,
+            @PathVariable Long requestId,
+            @RequestBody ServiceApiDtos.CancelServiceBookingRequest request
+    ) {
+        serviceBookingRequestService.cancelRequest(authorizationHeader, userId, requestId, request.reason());
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/api/v1/service/booking-requests/{requestId}/payment/initiate")
     public ApiResponse<ServiceApiDtos.ServiceBookingPaymentResponse> initiateRequestPayment(
             @RequestHeader("Authorization") String authorizationHeader,
