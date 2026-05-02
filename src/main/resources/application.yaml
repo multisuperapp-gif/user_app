@@ -68,6 +68,9 @@ app:
     shop-orders-url: ${SHOP_ORDERS_URL:http://127.0.0.1:8087}
 
 management:
+  health:
+    redis:
+      enabled: ${REDIS_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:
