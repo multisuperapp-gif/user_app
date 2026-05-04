@@ -243,7 +243,17 @@ public class ServiceBookingRequestService {
     private boolean canMakePayment(BookingPaymentRequestDtos.UserBookingRequestStatusData data) {
         return data.bookingId() != null
                 && "PAYMENT_PENDING".equalsIgnoreCase(data.bookingStatus())
-                && (data.paymentStatus() == null || "UNPAID".equalsIgnoreCase(data.paymentStatus()));
+                && isRetryablePaymentStatus(data.paymentStatus());
+    }
+
+    private boolean isRetryablePaymentStatus(String paymentStatus) {
+        if (paymentStatus == null || paymentStatus.isBlank()) {
+            return true;
+        }
+        return "UNPAID".equalsIgnoreCase(paymentStatus)
+                || "INITIATED".equalsIgnoreCase(paymentStatus)
+                || "PENDING".equalsIgnoreCase(paymentStatus)
+                || "FAILED".equalsIgnoreCase(paymentStatus);
     }
 
     private ServiceTargetRow requireBookingTarget(

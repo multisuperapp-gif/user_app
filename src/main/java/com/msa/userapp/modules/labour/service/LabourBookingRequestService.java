@@ -287,13 +287,21 @@ public class LabourBookingRequestService {
     private boolean canMakePayment(BookingPaymentRequestDtos.UserBookingRequestStatusData data) {
         if (data.acceptedProviderCount() != null && data.acceptedProviderCount() > 1) {
             return data.requestId() != null
-                    && (data.paymentStatus() == null
-                    || "UNPAID".equalsIgnoreCase(data.paymentStatus())
-                    || "PENDING".equalsIgnoreCase(data.paymentStatus()));
+                    && isRetryablePaymentStatus(data.paymentStatus());
         }
         return data.bookingId() != null
                 && "PAYMENT_PENDING".equalsIgnoreCase(data.bookingStatus())
-                && (data.paymentStatus() == null || "UNPAID".equalsIgnoreCase(data.paymentStatus()));
+                && isRetryablePaymentStatus(data.paymentStatus());
+    }
+
+    private boolean isRetryablePaymentStatus(String paymentStatus) {
+        if (paymentStatus == null || paymentStatus.isBlank()) {
+            return true;
+        }
+        return "UNPAID".equalsIgnoreCase(paymentStatus)
+                || "INITIATED".equalsIgnoreCase(paymentStatus)
+                || "PENDING".equalsIgnoreCase(paymentStatus)
+                || "FAILED".equalsIgnoreCase(paymentStatus);
     }
 
     private LabourProviderRow requireLabourProvider(Long userId, Long labourId, Long categoryId, AddressRow address) {
